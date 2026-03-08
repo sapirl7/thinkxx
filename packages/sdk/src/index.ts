@@ -7,5 +7,5 @@
  * for the Lifeline Anchor program.
  */
 
-export { deriveplanPda, deriveGuardianSetPda, deriveClaimPda, deriveVaultAuthorityPda, deriveSolVaultPda } from './pda';
+export { derivePlanPda, deriveGuardianSetPda, deriveClaimPda, deriveVaultAuthorityPda, deriveSolVaultPda } from './pda';
 export { ThinkxxClient } from './client';

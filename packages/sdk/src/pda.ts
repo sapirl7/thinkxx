@@ -1,17 +1,23 @@
 import { PublicKey } from '@solana/web3.js';
 import { PROGRAM_ID, SEEDS } from '@thinkxx/config';
-import BN from 'bn.js';
+
+/** Convert a u64 to a little-endian 8-byte Buffer */
+function u64ToLeBuffer(value: number | bigint): Buffer {
+  const buf = Buffer.alloc(8);
+  buf.writeBigUInt64LE(BigInt(value));
+  return buf;
+}
 
 /**
  * Derive PlanAccount PDA.
  * Seeds: ["plan", owner, plan_id]
  */
-export function deriveplanPda(
+export function derivePlanPda(
   owner: PublicKey,
-  planId: BN
+  planId: number | bigint
 ): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
-    [SEEDS.PLAN, owner.toBuffer(), planId.toArrayLike(Buffer, 'le', 8)],
+    [SEEDS.PLAN, owner.toBuffer(), u64ToLeBuffer(planId)],
     PROGRAM_ID
   );
 }
