@@ -5,15 +5,24 @@ import ConnectScreen from './src/screens/ConnectScreen';
 import DashboardScreen from './src/screens/DashboardScreen';
 import CreatePlanScreen from './src/screens/CreatePlanScreen';
 import HeartbeatScreen from './src/screens/HeartbeatScreen';
+import PlanDetailScreen from './src/screens/PlanDetailScreen';
+import GuardiansScreen from './src/screens/GuardiansScreen';
+import SettingsScreen from './src/screens/SettingsScreen';
 
 /**
- * Simple screen-based navigation.
- * Full React Navigation to be added when the app grows.
+ * Screen-based navigation for the Thinkxx mobile app.
+ * 7 screens covering the full protocol UX.
  */
-type Screen = 'dashboard' | 'create_plan' | 'heartbeat';
+type Screen =
+  | 'dashboard'
+  | 'create_plan'
+  | 'heartbeat'
+  | 'plan_detail'
+  | 'guardians'
+  | 'settings';
 
 function AppNavigator(): React.JSX.Element {
-  const { connected } = useWallet();
+  const { connected, disconnect } = useWallet();
   const [screen, setScreen] = useState<Screen>('dashboard');
 
   if (!connected) {
@@ -32,6 +41,26 @@ function AppNavigator(): React.JSX.Element {
       return (
         <HeartbeatScreen
           onBack={() => setScreen('dashboard')}
+        />
+      );
+    case 'plan_detail':
+      return (
+        <PlanDetailScreen
+          onBack={() => setScreen('dashboard')}
+          onGuardians={() => setScreen('guardians')}
+        />
+      );
+    case 'guardians':
+      return (
+        <GuardiansScreen
+          onBack={() => setScreen('plan_detail')}
+        />
+      );
+    case 'settings':
+      return (
+        <SettingsScreen
+          onBack={() => setScreen('dashboard')}
+          onDisconnect={disconnect}
         />
       );
     default:

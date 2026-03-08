@@ -4,6 +4,7 @@
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Network: devnet](https://img.shields.io/badge/Solana-devnet-purple.svg)](https://explorer.solana.com/?cluster=devnet)
+[![Anchor](https://img.shields.io/badge/Anchor-0.32-blueviolet.svg)](https://anchor-lang.com)
 
 ---
 
@@ -41,6 +42,7 @@ Thinkxx enables users to create time-locked emergency access policies on Solana.
        ▼                           ▼
 ┌──────────────────────────────────────────┐
 │        Lifeline Anchor Program           │
+│             18 Instructions              │
 └──────────────────────────────────────────┘
 ```
 
@@ -64,7 +66,6 @@ pnpm run build
 
 ### Anchor Program
 ```bash
-cd programs/lifeline
 anchor build
 anchor test
 anchor deploy  # deploys to devnet
@@ -74,23 +75,82 @@ anchor deploy  # deploys to devnet
 ```bash
 cd apps/mobile
 npx expo start
-# or
 npx expo run:android
 ```
+
+### CLI (Emergency Access)
+```bash
+# Check plan status
+thinkxx status -o <owner-pubkey>
+
+# Send heartbeat
+thinkxx heartbeat -p <plan-pubkey> -k <keypair-path>
+
+# Emergency withdrawal
+thinkxx emergency-withdraw -p <plan-pubkey> -k <keypair-path> -a 0.5
+
+# Guardian management
+thinkxx guardian add -p <plan> -k <keypair> -g <guardian-pubkey>
+thinkxx guardian remove -p <plan> -k <keypair> -g <guardian-pubkey>
+```
+
+## Protocol Instructions
+
+| # | Instruction | Category | Description |
+|---|-------------|----------|-------------|
+| 1 | `initialize_plan` | Lifecycle | Create a new plan in Draft state |
+| 2 | `activate_plan` | Lifecycle | Transition Draft → Active |
+| 3 | `heartbeat` | Lifecycle | Reset inactivity timer |
+| 4 | `pause_plan` | Lifecycle | Active → Paused (stop timer) |
+| 5 | `resume_plan` | Lifecycle | Paused → Active (reset timer) |
+| 6 | `close_plan` | Lifecycle | Reclaim rent (Draft/Cancelled only) |
+| 7 | `deposit_sol` | Vault | Deposit SOL into plan vault |
+| 8 | `set_emergency_bucket` | Vault | Set withdrawal allocation |
+| 9 | `emergency_withdraw` | Vault | Owner withdraws from bucket |
+| 10 | `add_guardian` | Guardian | Add guardian (max 5) |
+| 11 | `remove_guardian` | Guardian | Remove with quorum revalidation |
+| 12 | `start_claim` | Claim | Beneficiary starts claim after inactivity |
+| 13 | `cancel_claim` | Claim | Owner cancels active claim |
+| 14 | `approve_claim` | Claim | Guardian approves (tracks quorum) |
+| 15 | `veto_claim` | Claim | Guardian vetoes (immediate cancel) |
+| 16 | `finalize_claim` | Claim | Transfer vault to beneficiary |
+| 17 | `update_beneficiary` | Update | Change beneficiary address |
+| 18 | `update_timing` | Update | Adjust inactivity/grace periods |
 
 ## Project Structure
 
 ```
 ├── apps/mobile/          # React Native + Expo mobile app
-├── programs/lifeline/    # Anchor program (Solana)
+├── programs/lifeline/    # Anchor program (18 instructions)
 ├── packages/
-│   ├── sdk/              # TypeScript SDK
-│   ├── cli/              # Emergency CLI tool
+│   ├── sdk/              # TypeScript SDK + sponsored txs
+│   ├── cli/              # Emergency CLI (10 commands)
 │   ├── config/           # Shared configuration
-│   ├── notifications/    # Notification adapters
-│   └── rpc/              # RPC resilience layer
+│   ├── notifications/    # Console + Telegram adapters
+│   └── rpc/              # RPC resilience + retry layer
+├── tests/                # Anchor test suite (30 tests)
 ├── docs/                 # Architecture & protocol docs
 └── .github/              # CI workflows
+```
+
+## SDK Usage
+
+```typescript
+import { ThinkxxClient, SponsoredTransactionBuilder } from '@thinkxx/sdk';
+import { Connection, Keypair } from '@solana/web3.js';
+
+const connection = new Connection('https://api.devnet.solana.com');
+const client = new ThinkxxClient(connection);
+
+// Build a heartbeat instruction
+const ix = client.buildHeartbeat(ownerPubkey, planPda);
+
+// Sponsored (gasless) transaction
+const sponsored = new SponsoredTransactionBuilder(connection, {
+  feePayer: relayerKeypair,
+  maxFeePerTx: 10_000,
+});
+const tx = await sponsored.buildAndPartialSign([ix]);
 ```
 
 ## Documentation
@@ -106,15 +166,26 @@ npx expo run:android
 | [Notifications](docs/NOTIFICATIONS.md) | Alert architecture |
 | [Sponsored Txs](docs/SPONSORED_TXS.md) | Fee-free emergency actions |
 | [Publish Safe](docs/PUBLISH_SAFE.md) | Repository hygiene |
+| [Changelog](CHANGELOG.md) | Version history |
 
 ## How It Works
 
 1. **Create a Plan** — Choose a mode (Medical, Legal Risk, Legacy), set beneficiary, guardians, and timing
-2. **Fund Your Vault** — Deposit SOL or supported tokens
+2. **Fund Your Vault** — Deposit SOL into your plan's vault PDA
 3. **Stay Active** — Send periodic heartbeats to signal you're OK
 4. **Emergency Access** — If you're inactive beyond the threshold, your beneficiary can start a claim
-5. **Guardian Oversight** — Guardians approve or veto claims based on your policy
-6. **Finalization** — After grace period and guardian approval, funds transfer to beneficiary
+5. **Guardian Oversight** — Guardians approve or veto claims; single veto cancels immediately
+6. **Finalization** — After quorum approval or grace expiry, funds transfer to beneficiary
+7. **Emergency Bucket** — Owner can set aside a small amount for quick withdrawals without claims
+
+## Plan Modes
+
+| Mode | Inactivity | Grace | Use Case |
+|------|-----------|-------|----------|
+| Medical | 2 days | 1 day | Surgery, hospitalization |
+| LegalRisk | 7 days | 3 days | Travel to high-risk areas |
+| Legacy | 90 days | 30 days | Inheritance planning |
+| Custom | User-defined | User-defined | Flexible configuration |
 
 ## Important Disclaimers
 
