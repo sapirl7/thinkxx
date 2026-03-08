@@ -1,9 +1,11 @@
+[toolchain]
+
 [features]
-seeds = false
+resolution = true
 skip-lint = false
 
 [programs.devnet]
-lifeline = "11111111111111111111111111111111"
+lifeline = "5FEoFcJ2QK7T8SFDX7jKtCfSKvfGhE8QDRLVH2xSWvaP"
 
 [registry]
 url = "https://api.apr.dev"

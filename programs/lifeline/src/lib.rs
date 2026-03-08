@@ -4,8 +4,9 @@ pub mod state;
 
 use anchor_lang::prelude::*;
 use instructions::*;
+use state::PlanMode;
 
-declare_id!("11111111111111111111111111111111");
+declare_id!("5FEoFcJ2QK7T8SFDX7jKtCfSKvfGhE8QDRLVH2xSWvaP");
 
 #[program]
 pub mod lifeline {
