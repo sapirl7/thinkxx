@@ -1,0 +1,25 @@
+{
+  "name": "@thinkxx/cli",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Emergency CLI tool for Thinkxx Lifeline protocol",
+  "main": "dist/index.js",
+  "bin": { "thinkxx": "dist/index.js" },
+  "scripts": {
+    "build": "tsc",
+    "lint": "eslint src/",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@thinkxx/sdk": "workspace:*",
+    "@thinkxx/config": "workspace:*",
+    "commander": "^12.0.0",
+    "@solana/web3.js": "^1.95.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.5.0",
+    "eslint": "^9.0.0"
+  }
+}

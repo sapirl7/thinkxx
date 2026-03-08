@@ -1,0 +1,30 @@
+# Auto detect text files and normalize line endings
+* text=auto eol=lf
+
+# Explicit text files
+*.ts text
+*.tsx text
+*.js text
+*.jsx text
+*.json text
+*.md text
+*.yaml text
+*.yml text
+*.toml text
+*.rs text
+*.lock text
+
+# Binary files
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.eot binary
+*.apk binary
+*.aab binary
+*.so binary

@@ -1,0 +1,31 @@
+{
+  "name": "thinkxx",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Non-custodial Solana Mobile dApp for emergency access and inheritance planning",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sapirl7/thinkxx.git"
+  },
+  "license": "Apache-2.0",
+  "scripts": {
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "test:anchor": "cd programs/lifeline && anchor test",
+    "test:sdk": "turbo run test --filter=@thinkxx/sdk",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,md}\"",
+    "clean": "turbo run clean"
+  },
+  "devDependencies": {
+    "prettier": "^3.2.0",
+    "turbo": "^2.3.0"
+  },
+  "packageManager": "pnpm@9.15.0",
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  }
+}

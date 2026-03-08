@@ -1,0 +1,10 @@
+[workspace]
+members = ["programs/lifeline"]
+
+[profile.release]
+overflow-checks = true
+lto = "fat"
+codegen-units = 1
+
+[profile.test]
+opt-level = 0

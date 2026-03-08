@@ -1,0 +1,25 @@
+{
+  "name": "@thinkxx/rpc",
+  "version": "0.1.0",
+  "private": true,
+  "description": "RPC resilience layer with pool, health scoring, and fallback",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "lint": "eslint src/",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@solana/web3.js": "^1.95.0",
+    "@thinkxx/config": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.5.0",
+    "eslint": "^9.0.0",
+    "vitest": "^2.0.0"
+  }
+}
