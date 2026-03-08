@@ -1,12 +1,18 @@
 /**
- * @module @thinkxx/notifications
+ * @thinkxx/notifications
  *
- * Modular notification adapters for the Thinkxx protocol.
- * Notifications are UX redundancy — protocol correctness
- * never depends on notification delivery.
- *
- * See docs/NOTIFICATIONS.md for architecture details.
+ * Modular notification system for the Thinkxx protocol.
+ * Supports multiple adapters (console, telegram) with graceful fallback.
  */
 
-export type { NotificationAdapter, Notification, NotificationResult } from './types';
 export { NotificationRouter } from './router';
+export { ConsoleAdapter } from './adapters/console';
+export { TelegramAdapter } from './adapters/telegram';
+export type { TelegramAdapterConfig } from './adapters/telegram';
+export type {
+  NotificationAdapter,
+  Notification,
+  NotificationResult,
+  NotificationType,
+  NotificationPriority,
+} from './types';

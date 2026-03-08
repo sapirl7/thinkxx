@@ -112,4 +112,29 @@ pub mod lifeline {
     pub fn finalize_claim(ctx: Context<FinalizeClaim>) -> Result<()> {
         instructions::finalize_claim::handler(ctx)
     }
+
+    // === Plan Updates ===
+
+    /// Update beneficiary address.
+    pub fn update_beneficiary(
+        ctx: Context<UpdateBeneficiary>,
+        new_beneficiary: Pubkey,
+        new_backup_beneficiary: Option<Pubkey>,
+    ) -> Result<()> {
+        instructions::update_beneficiary::handler(ctx, new_beneficiary, new_backup_beneficiary)
+    }
+
+    /// Update timing parameters (inactivity + grace).
+    pub fn update_timing(
+        ctx: Context<UpdateTiming>,
+        new_inactivity_duration: i64,
+        new_grace_period: i64,
+    ) -> Result<()> {
+        instructions::update_timing::handler(ctx, new_inactivity_duration, new_grace_period)
+    }
+
+    /// Close a plan and reclaim rent (draft/cancelled only).
+    pub fn close_plan(ctx: Context<ClosePlan>) -> Result<()> {
+        instructions::close_plan::handler(ctx)
+    }
 }

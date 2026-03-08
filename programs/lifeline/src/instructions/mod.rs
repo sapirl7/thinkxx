@@ -13,6 +13,9 @@ pub mod emergency_withdraw;
 pub mod activate_plan;
 pub mod pause_plan;
 pub mod resume_plan;
+pub mod update_beneficiary;
+pub mod update_timing;
+pub mod close_plan;
 
 pub use initialize_plan::*;
 pub use heartbeat::*;
@@ -29,3 +32,6 @@ pub use emergency_withdraw::*;
 pub use activate_plan::*;
 pub use pause_plan::*;
 pub use resume_plan::*;
+pub use update_beneficiary::*;
+pub use update_timing::*;
+pub use close_plan::*;
