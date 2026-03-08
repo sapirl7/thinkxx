@@ -195,7 +195,195 @@ export class ThinkxxClient {
     });
   }
 
+  // --- Phase 4: Plan Lifecycle ---
+
+  /** Activate a plan from Draft → Active. */
+  buildActivatePlan(owner: PublicKey, planPda: PublicKey): TransactionInstruction {
+    return this.simpleInstruction('activate_plan', [
+      { pubkey: owner, isSigner: true, isWritable: false },
+      { pubkey: planPda, isSigner: false, isWritable: true },
+    ]);
+  }
+
+  /** Pause an active plan (stops inactivity timer). */
+  buildPausePlan(owner: PublicKey, planPda: PublicKey): TransactionInstruction {
+    return this.simpleInstruction('pause_plan', [
+      { pubkey: owner, isSigner: true, isWritable: false },
+      { pubkey: planPda, isSigner: false, isWritable: true },
+    ]);
+  }
+
+  /** Resume a paused plan. */
+  buildResumePlan(owner: PublicKey, planPda: PublicKey): TransactionInstruction {
+    return this.simpleInstruction('resume_plan', [
+      { pubkey: owner, isSigner: true, isWritable: false },
+      { pubkey: planPda, isSigner: false, isWritable: true },
+    ]);
+  }
+
+  // --- Phase 4: Guardian Management ---
+
+  /** Add a guardian to a plan's guardian set. */
+  buildAddGuardian(
+    owner: PublicKey,
+    planPda: PublicKey,
+    guardianSetPda: PublicKey,
+    guardian: PublicKey,
+  ): TransactionInstruction {
+    const discriminator = this.getDiscriminator('add_guardian');
+    const data = Buffer.alloc(8 + 32);
+    discriminator.copy(data, 0);
+    guardian.toBuffer().copy(data, 8);
+
+    return new TransactionInstruction({
+      programId: this.programId,
+      keys: [
+        { pubkey: owner, isSigner: true, isWritable: false },
+        { pubkey: planPda, isSigner: false, isWritable: true },
+        { pubkey: guardianSetPda, isSigner: false, isWritable: true },
+      ],
+      data,
+    });
+  }
+
+  /** Remove a guardian from a plan's guardian set. */
+  buildRemoveGuardian(
+    owner: PublicKey,
+    planPda: PublicKey,
+    guardianSetPda: PublicKey,
+    guardian: PublicKey,
+  ): TransactionInstruction {
+    const discriminator = this.getDiscriminator('remove_guardian');
+    const data = Buffer.alloc(8 + 32);
+    discriminator.copy(data, 0);
+    guardian.toBuffer().copy(data, 8);
+
+    return new TransactionInstruction({
+      programId: this.programId,
+      keys: [
+        { pubkey: owner, isSigner: true, isWritable: false },
+        { pubkey: planPda, isSigner: false, isWritable: true },
+        { pubkey: guardianSetPda, isSigner: false, isWritable: true },
+      ],
+      data,
+    });
+  }
+
+  // --- Phase 4: Claim Flow ---
+
+  /** Guardian approves a pending claim. */
+  buildApproveClaim(
+    guardian: PublicKey,
+    planPda: PublicKey,
+    guardianSetPda: PublicKey,
+    claimPda: PublicKey,
+  ): TransactionInstruction {
+    return this.simpleInstruction('approve_claim', [
+      { pubkey: guardian, isSigner: true, isWritable: false },
+      { pubkey: planPda, isSigner: false, isWritable: false },
+      { pubkey: guardianSetPda, isSigner: false, isWritable: false },
+      { pubkey: claimPda, isSigner: false, isWritable: true },
+    ]);
+  }
+
+  /** Guardian vetoes a pending claim (immediately cancels). */
+  buildVetoClaim(
+    guardian: PublicKey,
+    planPda: PublicKey,
+    guardianSetPda: PublicKey,
+    claimPda: PublicKey,
+  ): TransactionInstruction {
+    return this.simpleInstruction('veto_claim', [
+      { pubkey: guardian, isSigner: true, isWritable: true },
+      { pubkey: planPda, isSigner: false, isWritable: true },
+      { pubkey: guardianSetPda, isSigner: false, isWritable: false },
+      { pubkey: claimPda, isSigner: false, isWritable: true },
+    ]);
+  }
+
+  /** Finalize an approved claim — transfers vault to claimant. */
+  buildFinalizeClaim(
+    claimant: PublicKey,
+    planPda: PublicKey,
+    guardianSetPda: PublicKey,
+    claimPda: PublicKey,
+  ): TransactionInstruction {
+    const [solVault] = deriveSolVaultPda(planPda);
+    const [vaultAuthority] = deriveVaultAuthorityPda(planPda);
+
+    return this.simpleInstruction('finalize_claim', [
+      { pubkey: claimant, isSigner: true, isWritable: true },
+      { pubkey: planPda, isSigner: false, isWritable: true },
+      { pubkey: guardianSetPda, isSigner: false, isWritable: false },
+      { pubkey: claimPda, isSigner: false, isWritable: true },
+      { pubkey: solVault, isSigner: false, isWritable: true },
+      { pubkey: vaultAuthority, isSigner: false, isWritable: false },
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+    ]);
+  }
+
+  // --- Phase 4: Emergency Bucket ---
+
+  /** Set the emergency bucket allocation. */
+  buildSetEmergencyBucket(
+    owner: PublicKey,
+    planPda: PublicKey,
+    amount: bigint,
+  ): TransactionInstruction {
+    const discriminator = this.getDiscriminator('set_emergency_bucket');
+    const data = Buffer.alloc(8 + 8);
+    discriminator.copy(data, 0);
+    data.writeBigUInt64LE(amount, 8);
+
+    return new TransactionInstruction({
+      programId: this.programId,
+      keys: [
+        { pubkey: owner, isSigner: true, isWritable: false },
+        { pubkey: planPda, isSigner: false, isWritable: true },
+      ],
+      data,
+    });
+  }
+
+  /** Owner withdraws from emergency bucket. */
+  buildEmergencyWithdraw(
+    owner: PublicKey,
+    planPda: PublicKey,
+    amount: bigint,
+  ): TransactionInstruction {
+    const [solVault] = deriveSolVaultPda(planPda);
+    const [vaultAuthority] = deriveVaultAuthorityPda(planPda);
+    const discriminator = this.getDiscriminator('emergency_withdraw');
+    const data = Buffer.alloc(8 + 8);
+    discriminator.copy(data, 0);
+    data.writeBigUInt64LE(amount, 8);
+
+    return new TransactionInstruction({
+      programId: this.programId,
+      keys: [
+        { pubkey: owner, isSigner: true, isWritable: true },
+        { pubkey: planPda, isSigner: false, isWritable: true },
+        { pubkey: solVault, isSigner: false, isWritable: true },
+        { pubkey: vaultAuthority, isSigner: false, isWritable: false },
+        { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+      ],
+      data,
+    });
+  }
+
   // --- Helpers ---
+
+  /** Build a simple instruction with no args (discriminator only). */
+  private simpleInstruction(
+    name: string,
+    keys: Array<{ pubkey: PublicKey; isSigner: boolean; isWritable: boolean }>,
+  ): TransactionInstruction {
+    return new TransactionInstruction({
+      programId: this.programId,
+      keys,
+      data: this.getDiscriminator(name),
+    });
+  }
 
   /**
    * Compute Anchor instruction discriminator.
