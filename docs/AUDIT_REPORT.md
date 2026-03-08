@@ -1,0 +1,172 @@
+# Thinkxx Security & Code Quality Audit
+
+**Date**: March 8, 2026
+**Auditor**: Antigravity (automated + manual review)
+**Scope**: All packages (Anchor program, SDK, CLI, RPC, Notifications, Mobile)
+**Snyk Status**: ⚠️ Unavailable (authentication issue) — manual review performed
+
+---
+
+## Executive Summary
+
+The Thinkxx codebase demonstrates **strong security posture** for a devnet-stage protocol. All critical paths (vault operations, claim finalization, guardian management) enforce proper authority checks via Anchor constraints. No critical vulnerabilities were found. Several informational findings and recommendations are documented below.
+
+**Overall Rating**: 🟢 **No critical issues** | 🟡 3 medium | 🔵 5 informational
+
+---
+
+## Anchor Program — `programs/lifeline/`
+
+### ✅ Strengths
+
+| Control | Implementation |
+|---------|---------------|
+| Signer checks | All mutable operations require `Signer<'info>` |
+| Account constraints | `has_one`, `constraint` on every instruction |
+| PDA derivation | Deterministic seeds, bump stored on-chain |
+| State machine guards | `plan.state == PlanState::X` on all transitions |
+| Overflow protection | Anchor default: checked math enabled |
+
+### 🟡 Medium Findings
+
+#### M-1: `finalize_claim` — Missing vault authority signature
+
+**File**: `instructions/finalize_claim.rs:68-72`
+**Risk**: The vault-to-claimant transfer bypasses the `vault_authority` PDA signature pattern, using direct lamport manipulation instead.
+**Impact**: Works correctly in practice because PDA ownership is validated via seeds constraint, but inconsistent with standard CPI transfer patterns.
+**Recommendation**: Consider using a CPI system_instruction::transfer with vault_authority as signer for consistency and auditability.
+
+#### M-2: `start_claim` — Claim PDA replay after close
+
+**File**: `instructions/start_claim.rs:20-27`
+**Risk**: Uses `init` for claim PDA. If a claim is finalized and the ClaimAccount is closed, a new claim can be initialized at the same PDA with the same seeds.
+**Impact**: This is intentional for protocol design (allows re-claims), but should be explicitly documented as expected behavior.
+**Recommendation**: Document in PROTOCOL_SPEC.md that claim PDA reuse is by design.
+
+#### M-3: `emergency_withdraw` — No rate limiting
+
+**File**: `instructions/emergency_withdraw.rs:36-57`
+**Risk**: Owner can drain the entire emergency bucket in a single transaction.
+**Impact**: By design (owner has full control), but a compromised wallet key could drain emergency funds instantly.
+**Recommendation**: Consider adding optional per-transaction limits or cooldown for emergency withdrawals.
+
+### 🔵 Informational
+
+#### I-1: Integer arithmetic
+
+All arithmetic uses Anchor's checked math (default in 0.30+). No overflow risk.
+
+#### I-2: Clock dependency
+
+`Clock::get()` is used for timing. On-chain clock can be manipulated by validators within ~1 slot tolerance. Documented in THREAT_MODEL.md as accepted risk.
+
+---
+
+## SDK — `packages/sdk/`
+
+### ✅ No vulnerabilities found
+
+| Check | Result |
+|-------|--------|
+| No secret handling | ✅ SDK never touches private keys |
+| Type safety | ✅ Strict TypeScript, no `any` |
+| Input validation | ✅ PDA derivation uses typed seeds |
+| Sponsored TX | ✅ Proper fee payer separation |
+
+### 🔵 Informational
+
+#### I-3: `SponsoredTransactionBuilder` — sponsor keypair in memory
+
+The sponsor keypair is held in `SponsoredTxConfig.feePayer`. This is expected for server-side relayers but should not be used in client-side code. **Already documented in SPONSORED_TXS.md.**
+
+---
+
+## CLI — `packages/cli/`
+
+### 🔵 Informational
+
+#### I-4: Keypair loaded from file
+
+`loadKeypair()` reads raw JSON keypair from disk — standard Solana CLI pattern. No secrets are logged.
+
+#### I-5: No input sanitization on pubkey strings
+
+`new PublicKey(options.plan)` will throw on invalid Base58. Commander.js options are string-typed. Invalid input surfaces as a clear error message. Acceptable for a CLI tool.
+
+---
+
+## RPC — `packages/rpc/`
+
+### ✅ No vulnerabilities found
+
+- Exponential backoff prevents rapid retry storms
+- Max delay cap (5s) prevents indefinite hangs
+- Pool health scoring correctly downgrades failed endpoints
+
+---
+
+## Notifications — `packages/notifications/`
+
+### 🔵 Informational
+
+#### I-6: Telegram bot token exposure
+
+`TelegramAdapter` constructs API URLs with the bot token. This is the standard Telegram Bot API pattern. The token should be provided via environment variables, never committed to code. **No token is hardcoded.**
+
+#### I-7: Markdown escaping
+
+`escapeMarkdown()` covers Telegram's required escape characters. No injection risk for the `sendMessage` endpoint.
+
+---
+
+## Mobile — `apps/mobile/`
+
+### ✅ No vulnerabilities found
+
+| Check | Result |
+|-------|--------|
+| No secret storage | ✅ App doesn't handle keys |
+| MWA pattern | ✅ Wallet signing delegated to external wallet |
+| No network calls in screens | ✅ All screens are presentational |
+| Deep linking | ✅ `thinkxx://` scheme registered |
+
+---
+
+## Repository Hygiene
+
+| Check | Status |
+|-------|--------|
+| No secrets committed | ✅ |
+| .gitignore covers `.env`, `target/`, `node_modules/` | ✅ |
+| No hardcoded RPC URLs outside config | ✅ |
+| No `console.log` with sensitive data | ✅ |
+| Conventional commits | ✅ |
+| LICENSE present | ✅ Apache 2.0 |
+| SECURITY.md present | ✅ |
+
+---
+
+## Summary of Findings
+
+| ID | Severity | Component | Description |
+|----|----------|-----------|-------------|
+| M-1 | 🟡 Medium | finalize_claim | Direct lamport manipulation vs CPI transfer |
+| M-2 | 🟡 Medium | start_claim | Claim PDA reuse after finalization |
+| M-3 | 🟡 Medium | emergency_withdraw | No per-tx rate limiting |
+| I-1 | 🔵 Info | Anchor | Checked math confirmed |
+| I-2 | 🔵 Info | Anchor | Clock slot tolerance (~1s) |
+| I-3 | 🔵 Info | SDK | Sponsor keypair in memory |
+| I-4 | 🔵 Info | CLI | Keypair from file (standard pattern) |
+| I-5 | 🔵 Info | CLI | Base58 validation via PublicKey constructor |
+| I-6 | 🔵 Info | Notifications | Bot token via config (not hardcoded) |
+| I-7 | 🔵 Info | Notifications | Markdown escaping coverage |
+
+---
+
+## Recommendations
+
+1. **Pre-mainnet**: Engage a professional auditor (e.g., OtterSec, Neodyme) for the Anchor program
+2. **M-1 fix**: Refactor vault transfers to use CPI with vault_authority PDA signing
+3. **M-2 doc**: Add explicit claim lifecycle documentation to PROTOCOL_SPEC.md
+4. **M-3 consider**: Optional emergency withdrawal cooldown (configurable per-plan)
+5. **Snyk**: Resolve authentication to enable continuous SAST scanning in CI

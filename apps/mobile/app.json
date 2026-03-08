@@ -47,9 +47,6 @@
         "cluster": "devnet",
         "programId": "THINKXX1111111111111111111111111111111111111"
       }
-    },
-    "plugins": [
-      "expo-router"
-    ]
+    }
   }
 }
