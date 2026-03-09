@@ -13,15 +13,17 @@
     "build": "echo 'mobile build via expo'"
   },
   "dependencies": {
+    "@solana/web3.js": "^1.95.0",
+    "@thinkxx/config": "workspace:*",
+    "@thinkxx/notifications": "workspace:*",
+    "@thinkxx/rpc": "workspace:*",
+    "@thinkxx/sdk": "workspace:*",
+    "buffer": "^6.0.3",
     "expo": "~55.0.5",
     "expo-status-bar": "~55.0.4",
     "react": "19.2.0",
     "react-native": "0.83.2",
-    "@solana/web3.js": "^1.95.0",
-    "@thinkxx/config": "workspace:*",
-    "@thinkxx/sdk": "workspace:*",
-    "@thinkxx/rpc": "workspace:*",
-    "@thinkxx/notifications": "workspace:*"
+    "react-native-get-random-values": "^2.0.0"
   },
   "devDependencies": {
     "@types/react": "~19.2.2",

@@ -1,18 +1,19 @@
-declare const require: (moduleName: string) => {
-  Buffer: {
-    from: (...args: unknown[]) => unknown;
-    alloc: (...args: unknown[]) => unknown;
-  };
-};
+/**
+ * React Native polyfills for Solana web3.js compatibility.
+ * Must be imported BEFORE any @solana/* or crypto-related packages.
+ */
 
-const { Buffer } = require('buffer');
+// 1. getRandomValues — required by @noble/hashes, web3.js
+import 'react-native-get-random-values';
 
-type GlobalWithBuffer = typeof globalThis & {
+// 2. Buffer — required by web3.js, bs58, borsh
+import { Buffer } from 'buffer';
+
+type GlobalAny = typeof globalThis & {
   Buffer?: typeof Buffer;
 };
 
-const globalWithBuffer = globalThis as GlobalWithBuffer;
-
-if (!globalWithBuffer.Buffer) {
-  globalWithBuffer.Buffer = Buffer;
+const g = globalThis as GlobalAny;
+if (!g.Buffer) {
+  g.Buffer = Buffer;
 }
