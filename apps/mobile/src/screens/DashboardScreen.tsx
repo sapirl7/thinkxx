@@ -19,6 +19,7 @@ interface PlanSummary {
   mode: string;
   state: string;
   beneficiary: string;
+  address?: string;
   lastHeartbeat: Date;
   vaultBalance: number;
   nextHeartbeatDue: Date;
@@ -47,9 +48,8 @@ export default function DashboardScreen({
   const [balance, setBalance] = useState<number | null>(null);
 
   const fetchData = useCallback(async () => {
-    setPlans([]);
-
     if (!publicKey) {
+      setPlans([]);
       setBalance(null);
       return;
     }
@@ -71,6 +71,21 @@ export default function DashboardScreen({
     await fetchData();
     setRefreshing(false);
   }, [fetchData]);
+
+  const visiblePlans = plans.length > 0
+    ? plans
+    : lastPlanAddress
+      ? [{
+        id: lastPlanAddress,
+        address: lastPlanAddress,
+        mode: 'pending',
+        state: 'Created',
+        beneficiary: '',
+        lastHeartbeat: new Date(),
+        vaultBalance: 0,
+        nextHeartbeatDue: new Date(),
+      }]
+      : [];
 
   return (
     <SafeAreaView style={styles.container}>
@@ -115,15 +130,7 @@ export default function DashboardScreen({
             </TouchableOpacity>
           </View>
 
-          {lastPlanAddress && (
-            <View style={styles.recentPlanCard}>
-              <Text style={styles.recentPlanLabel}>Last Created Plan</Text>
-              <Text style={styles.recentPlanValue}>{lastPlanAddress}</Text>
-              <Text style={styles.recentPlanHint}>Use this address for heartbeat until plan sync is wired.</Text>
-            </View>
-          )}
-
-          {plans.length === 0 ? (
+          {visiblePlans.length === 0 ? (
             <View style={styles.emptyState}>
               <Text style={styles.emptyIcon}>📋</Text>
               <Text style={styles.emptyTitle}>No plans yet</Text>
@@ -135,7 +142,7 @@ export default function DashboardScreen({
               </TouchableOpacity>
             </View>
           ) : (
-            plans.map(plan => (
+            visiblePlans.map(plan => (
               <PlanCard key={plan.id} plan={plan} />
             ))
           )}
@@ -172,6 +179,9 @@ function PlanCard({ plan }: { plan: PlanSummary }): React.JSX.Element {
         <Text style={styles.planState}>{plan.state}</Text>
       </View>
       <Text style={styles.planBalance}>{plan.vaultBalance.toFixed(4)} SOL</Text>
+      {plan.address ? (
+        <Text style={styles.planAddress}>{plan.address}</Text>
+      ) : null}
       <Text style={styles.planMeta}>
         Last heartbeat: {plan.lastHeartbeat.toLocaleDateString()}
       </Text>
@@ -290,28 +300,6 @@ const styles = StyleSheet.create({
     fontWeight: theme.fontWeight.semibold,
     color: theme.colors.text,
   },
-  recentPlanCard: {
-    backgroundColor: theme.colors.surface,
-    borderRadius: theme.borderRadius.md,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    padding: theme.spacing.md,
-    gap: theme.spacing.xs,
-  },
-  recentPlanLabel: {
-    fontSize: theme.fontSize.xs,
-    color: theme.colors.textMuted,
-    textTransform: 'uppercase',
-    letterSpacing: 0.4,
-  },
-  recentPlanValue: {
-    fontSize: theme.fontSize.sm,
-    color: theme.colors.text,
-  },
-  recentPlanHint: {
-    fontSize: theme.fontSize.xs,
-    color: theme.colors.textSecondary,
-  },
   emptyState: {
     backgroundColor: theme.colors.surface,
     borderRadius: theme.borderRadius.lg,
@@ -384,6 +372,11 @@ const styles = StyleSheet.create({
   planMeta: {
     fontSize: theme.fontSize.xs,
     color: theme.colors.textMuted,
+  },
+  planAddress: {
+    fontSize: theme.fontSize.xs,
+    color: theme.colors.textSecondary,
+    marginBottom: theme.spacing.xs,
   },
   actionsGrid: {
     flexDirection: 'row',

@@ -13,6 +13,8 @@ import {
   SolanaMobileWalletAdapterProtocolErrorCode,
 } from '@solana-mobile/mobile-wallet-adapter-protocol';
 
+const SOLANA_SIGN_TRANSACTIONS_FEATURE = 'solana:signTransactions';
+
 /** Wallet connection state */
 interface WalletState {
   connected: boolean;
@@ -100,6 +102,20 @@ function toWalletErrorMessage(error: unknown): string {
     error.code === SolanaMobileWalletAdapterProtocolErrorCode.ERROR_AUTHORIZATION_FAILED
   ) {
     return 'Wallet authorization was canceled or denied.';
+  }
+
+  if (
+    error instanceof SolanaMobileWalletAdapterProtocolError &&
+    error.code === SolanaMobileWalletAdapterProtocolErrorCode.ERROR_NOT_SUBMITTED
+  ) {
+    return 'Wallet signed the transaction but did not submit it.';
+  }
+
+  if (
+    error instanceof SolanaMobileWalletAdapterProtocolError &&
+    error.code === SolanaMobileWalletAdapterProtocolErrorCode.ERROR_NOT_SIGNED
+  ) {
+    return 'Wallet did not sign the transaction.';
   }
 
   return error instanceof Error ? error.message : 'Failed to connect wallet';
@@ -206,14 +222,34 @@ export function WalletProvider({ children }: { children: ReactNode }): React.JSX
         async wallet => {
           const session = await authorizeWallet(wallet);
           const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
+          const capabilities = await wallet.getCapabilities();
+          const features = new Set<string>(capabilities.features as string[] | undefined);
 
           transaction.feePayer = transaction.feePayer ?? session.publicKey;
           transaction.recentBlockhash = blockhash;
 
-          const [signature] = await wallet.signAndSendTransactions({
-            transactions: [transaction],
-            commitment: 'confirmed',
-          });
+          let signature: string | undefined;
+
+          if (capabilities.supports_sign_and_send_transactions) {
+            [signature] = await wallet.signAndSendTransactions({
+              transactions: [transaction],
+              commitment: 'confirmed',
+            });
+          } else if (features.has(SOLANA_SIGN_TRANSACTIONS_FEATURE)) {
+            const [signedTransaction] = await wallet.signTransactions({
+              transactions: [transaction],
+            });
+
+            if (!signedTransaction) {
+              throw new Error('Wallet did not return a signed transaction');
+            }
+
+            signature = await connection.sendRawTransaction(signedTransaction.serialize(), {
+              preflightCommitment: 'confirmed',
+            });
+          } else {
+            throw new Error('This wallet does not support transaction submission for Thinkxx.');
+          }
 
           if (!signature) {
             throw new Error('Wallet did not return a transaction signature');

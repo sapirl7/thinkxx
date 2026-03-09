@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { WalletProvider, useWallet } from './src/providers/WalletProvider';
 import ConnectScreen from './src/screens/ConnectScreen';
@@ -22,9 +22,15 @@ type Screen =
   | 'settings';
 
 function AppNavigator(): React.JSX.Element {
-  const { connected, disconnect } = useWallet();
+  const { connected, disconnect, publicKey } = useWallet();
   const [screen, setScreen] = useState<Screen>('dashboard');
   const [lastPlanAddress, setLastPlanAddress] = useState<string | null>(null);
+  const walletAddress = publicKey?.toBase58() ?? null;
+
+  useEffect(() => {
+    setLastPlanAddress(null);
+    setScreen('dashboard');
+  }, [walletAddress]);
 
   if (!connected) {
     return <ConnectScreen />;

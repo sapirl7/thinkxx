@@ -1,5 +1,6 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { PublicKey, Transaction } from '@solana/web3.js';
+import { PROGRAM_ID } from '@thinkxx/config';
 import { ThinkxxClient } from '@thinkxx/sdk';
 import {
   View,
@@ -19,6 +20,9 @@ interface HeartbeatScreenProps {
   onBack: () => void;
   initialPlanAddress?: string | null;
 }
+
+const PLAN_OWNER_OFFSET = 8;
+const PLAN_OWNER_END = PLAN_OWNER_OFFSET + 32;
 
 /**
  * HeartbeatScreen — allows the owner to send a heartbeat
@@ -78,6 +82,22 @@ export default function HeartbeatScreen({ onBack, initialPlanAddress = null }: H
 
     setSending(true);
     try {
+      const accountInfo = await connection.getAccountInfo(planPda, 'confirmed');
+      if (!accountInfo) {
+        throw new Error('Plan account was not found on devnet.');
+      }
+      if (!accountInfo.owner.equals(PROGRAM_ID)) {
+        throw new Error('This address is not a Thinkxx plan.');
+      }
+      if (accountInfo.data.length < PLAN_OWNER_END) {
+        throw new Error('Plan account data is invalid.');
+      }
+
+      const planOwner = new PublicKey(accountInfo.data.subarray(PLAN_OWNER_OFFSET, PLAN_OWNER_END));
+      if (!planOwner.equals(publicKey)) {
+        throw new Error('This plan does not belong to your wallet.');
+      }
+
       const client = new ThinkxxClient(connection);
       const instruction = client.buildHeartbeat(publicKey, planPda);
       const signature = await signAndSendTransaction(new Transaction().add(instruction));

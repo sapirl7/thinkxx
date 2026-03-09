@@ -16,12 +16,12 @@ interface PlanDetailScreenProps {
 type PlanState = 'Draft' | 'Active' | 'Paused' | 'ClaimPending' | 'Claimed' | 'Cancelled';
 
 const STATE_COLORS: Record<PlanState, string> = {
-  Draft: '#6B7280',
+  Draft: '#6E7681',
   Active: COLORS.success,
-  Paused: '#F59E0B',
+  Paused: '#D29922',
   ClaimPending: COLORS.danger,
-  Claimed: '#8B5CF6',
-  Cancelled: '#6B7280',
+  Claimed: '#00BFA6',
+  Cancelled: '#6E7681',
 };
 
 export default function PlanDetailScreen({ onBack, onGuardians }: PlanDetailScreenProps): React.JSX.Element {

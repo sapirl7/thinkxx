@@ -64,6 +64,13 @@ const MODE_TO_PLAN_MODE: Record<PlanModeOption, PlanMode> = {
   legacy: PlanMode.Legacy,
 };
 
+const SECONDS_PER_DAY = 86_400;
+const MIN_INACTIVITY_DAYS = 1;
+const MAX_INACTIVITY_DAYS = 1_825;
+const MIN_GRACE_HOURS = 1;
+const MIN_GRACE_DAYS = MIN_GRACE_HOURS / 24;
+const MAX_GRACE_DAYS = 90;
+
 /**
  * CreatePlanScreen — wizard for creating a new emergency access plan.
  * Collects mode, beneficiary, and timing parameters.
@@ -105,15 +112,15 @@ export default function CreatePlanScreen({ onBack, onCreated }: CreatePlanScreen
       return;
     }
 
-    const inactivityValue = Number.parseInt(inactivityDays, 10);
-    const graceValue = Number.parseInt(graceDays, 10);
+    const inactivityValue = Number.parseFloat(inactivityDays);
+    const graceValue = Number.parseFloat(graceDays);
 
-    if (!Number.isInteger(inactivityValue) || inactivityValue < 1) {
-      Alert.alert('Invalid Timing', 'Inactivity period must be at least 1 day');
+    if (!Number.isFinite(inactivityValue) || inactivityValue < MIN_INACTIVITY_DAYS || inactivityValue > MAX_INACTIVITY_DAYS) {
+      Alert.alert('Invalid Timing', `Inactivity period must be between ${MIN_INACTIVITY_DAYS} and ${MAX_INACTIVITY_DAYS} days`);
       return;
     }
-    if (!Number.isInteger(graceValue) || graceValue < 1) {
-      Alert.alert('Invalid Timing', 'Grace period must be at least 1 day');
+    if (!Number.isFinite(graceValue) || graceValue < MIN_GRACE_DAYS || graceValue > MAX_GRACE_DAYS) {
+      Alert.alert('Invalid Timing', `Grace period must be between ${MIN_GRACE_HOURS} hour and ${MAX_GRACE_DAYS} days`);
       return;
     }
 
@@ -126,8 +133,8 @@ export default function CreatePlanScreen({ onBack, onCreated }: CreatePlanScreen
         planId,
         mode: MODE_TO_PLAN_MODE[selectedMode],
         beneficiary: beneficiaryPublicKey,
-        inactivityDuration: BigInt(inactivityValue * 86_400),
-        gracePeriod: BigInt(graceValue * 86_400),
+        inactivityDuration: BigInt(Math.round(inactivityValue * SECONDS_PER_DAY)),
+        gracePeriod: BigInt(Math.round(graceValue * SECONDS_PER_DAY)),
         guardianQuorum: 0,
       });
 
@@ -216,7 +223,7 @@ export default function CreatePlanScreen({ onBack, onCreated }: CreatePlanScreen
               style={styles.timingInput}
               value={graceDays}
               onChangeText={setGraceDays}
-              keyboardType="number-pad"
+              keyboardType="decimal-pad"
               placeholderTextColor={theme.colors.textMuted}
             />
           </View>

@@ -1,27 +1,27 @@
 /**
  * Theme constants for the Thinkxx mobile app.
- * Dark-first design with Solana-inspired accent colors.
+ * Dark-first design with unique teal + amber identity.
  */
 export const theme = {
   colors: {
-    background: '#0A0E1A',
-    surface: '#141929',
-    surfaceElevated: '#1C2237',
-    primary: '#9945FF',
-    primaryLight: '#B77BFF',
-    secondary: '#14F195',
-    secondaryDark: '#0BB97A',
-    accent: '#4C6FFF',
-    text: '#FFFFFF',
-    textSecondary: '#8B95B0',
-    textMuted: '#505A78',
-    border: '#1E2640',
-    danger: '#FF4D6A',
+    background: '#0E1117',
+    surface: '#161B22',
+    surfaceElevated: '#1C2129',
+    primary: '#00BFA6',
+    primaryLight: '#4DDBCA',
+    secondary: '#E8A838',
+    secondaryDark: '#C48A20',
+    accent: '#E8A838',
+    text: '#E6EDF3',
+    textSecondary: '#8B949E',
+    textMuted: '#6E7681',
+    border: '#21262D',
+    danger: '#F85149',
     dangerLight: '#FF7A8F',
-    warning: '#FFB84D',
-    success: '#14F195',
-    cardGradientStart: '#1A1F36',
-    cardGradientEnd: '#141929',
+    warning: '#D29922',
+    success: '#3FB950',
+    cardGradientStart: '#1C2129',
+    cardGradientEnd: '#161B22',
   },
   spacing: {
     xs: 4,
