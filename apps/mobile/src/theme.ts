@@ -55,4 +55,14 @@ export const theme = {
   },
 } as const;
 
+// Legacy aliases kept for screens that still use the pre-refactor theme API.
+export const COLORS = {
+  ...theme.colors,
+  textPrimary: theme.colors.text,
+} as const;
+
+export const SPACING = theme.spacing;
+export const FONT_SIZES = theme.fontSize;
+export const BORDER_RADIUS = theme.borderRadius;
+
 export type Theme = typeof theme;
