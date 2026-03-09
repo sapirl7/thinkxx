@@ -11,7 +11,7 @@ function encodeSeed(value: string): Uint8Array {
  * Updated after each deployment.
  */
 export const PROGRAM_ID = new PublicKey(
-  '11111111111111111111111111111111' // Placeholder — updated after first deployment
+  '5FEoFcJ2QK7T8SFDX7jKtCfSKvfGhE8QDRLVH2xSWvaP'
 );
 
 /** PDA seed prefixes used by the Lifeline program */
