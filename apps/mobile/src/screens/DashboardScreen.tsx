@@ -9,6 +9,7 @@ import {
   RefreshControl,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
+import { LAMPORTS_PER_SOL } from '@solana/web3.js';
 import { useWallet } from '../providers/WalletProvider';
 import { theme } from '../theme';
 
@@ -23,21 +24,43 @@ interface PlanSummary {
   nextHeartbeatDue: Date;
 }
 
+interface DashboardScreenProps {
+  onCreatePlan: () => void;
+  onHeartbeat: () => void;
+  onSettings: () => void;
+  lastPlanAddress: string | null;
+}
+
 /**
  * Dashboard screen — main view after wallet connection.
  * Shows plan list, vault status, and quick actions.
  */
-export default function DashboardScreen(): React.JSX.Element {
-  const { shortAddress, disconnect, connection } = useWallet();
+export default function DashboardScreen({
+  onCreatePlan,
+  onHeartbeat,
+  onSettings,
+  lastPlanAddress,
+}: DashboardScreenProps): React.JSX.Element {
+  const { shortAddress, disconnect, connection, publicKey } = useWallet();
   const [plans, setPlans] = useState<PlanSummary[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [balance, setBalance] = useState<number | null>(null);
 
   const fetchData = useCallback(async () => {
-    // TODO(#7): Fetch plans via SDK, balance via connection
     setPlans([]);
-    setBalance(null);
-  }, [connection]);
+
+    if (!publicKey) {
+      setBalance(null);
+      return;
+    }
+
+    try {
+      const lamports = await connection.getBalance(publicKey, 'confirmed');
+      setBalance(lamports / LAMPORTS_PER_SOL);
+    } catch {
+      setBalance(null);
+    }
+  }, [connection, publicKey]);
 
   useEffect(() => {
     fetchData();
@@ -87,10 +110,18 @@ export default function DashboardScreen(): React.JSX.Element {
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Your Plans</Text>
-            <TouchableOpacity style={styles.createButton}>
+            <TouchableOpacity style={styles.createButton} onPress={onCreatePlan}>
               <Text style={styles.createButtonText}>+ New Plan</Text>
             </TouchableOpacity>
           </View>
+
+          {lastPlanAddress && (
+            <View style={styles.recentPlanCard}>
+              <Text style={styles.recentPlanLabel}>Last Created Plan</Text>
+              <Text style={styles.recentPlanValue}>{lastPlanAddress}</Text>
+              <Text style={styles.recentPlanHint}>Use this address for heartbeat until plan sync is wired.</Text>
+            </View>
+          )}
 
           {plans.length === 0 ? (
             <View style={styles.emptyState}>
@@ -99,7 +130,7 @@ export default function DashboardScreen(): React.JSX.Element {
               <Text style={styles.emptyDescription}>
                 Create your first emergency access plan to protect your assets
               </Text>
-              <TouchableOpacity style={styles.emptyButton}>
+              <TouchableOpacity style={styles.emptyButton} onPress={onCreatePlan}>
                 <Text style={styles.emptyButtonText}>Create Plan</Text>
               </TouchableOpacity>
             </View>
@@ -114,10 +145,10 @@ export default function DashboardScreen(): React.JSX.Element {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Quick Actions</Text>
           <View style={styles.actionsGrid}>
-            <ActionTile icon="💓" label="Heartbeat" color={theme.colors.secondary} />
+            <ActionTile icon="💓" label="Heartbeat" color={theme.colors.secondary} onPress={onHeartbeat} />
             <ActionTile icon="📥" label="Deposit" color={theme.colors.accent} />
             <ActionTile icon="👁" label="Status" color={theme.colors.primaryLight} />
-            <ActionTile icon="⚙️" label="Settings" color={theme.colors.textMuted} />
+            <ActionTile icon="⚙️" label="Settings" color={theme.colors.textMuted} onPress={onSettings} />
           </View>
         </View>
       </ScrollView>
@@ -152,13 +183,15 @@ function ActionTile({
   icon,
   label,
   color,
+  onPress,
 }: {
   icon: string;
   label: string;
   color: string;
+  onPress?: () => void;
 }): React.JSX.Element {
   return (
-    <TouchableOpacity style={styles.actionTile} activeOpacity={0.7}>
+    <TouchableOpacity style={styles.actionTile} activeOpacity={0.7} onPress={onPress} disabled={!onPress}>
       <View style={[styles.actionIconContainer, { backgroundColor: `${color}15` }]}>
         <Text style={styles.actionIcon}>{icon}</Text>
       </View>
@@ -256,6 +289,28 @@ const styles = StyleSheet.create({
     fontSize: theme.fontSize.sm,
     fontWeight: theme.fontWeight.semibold,
     color: theme.colors.text,
+  },
+  recentPlanCard: {
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.borderRadius.md,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    padding: theme.spacing.md,
+    gap: theme.spacing.xs,
+  },
+  recentPlanLabel: {
+    fontSize: theme.fontSize.xs,
+    color: theme.colors.textMuted,
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+  },
+  recentPlanValue: {
+    fontSize: theme.fontSize.sm,
+    color: theme.colors.text,
+  },
+  recentPlanHint: {
+    fontSize: theme.fontSize.xs,
+    color: theme.colors.textSecondary,
   },
   emptyState: {
     backgroundColor: theme.colors.surface,

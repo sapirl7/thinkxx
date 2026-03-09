@@ -1,4 +1,6 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
+import { PublicKey, Transaction } from '@solana/web3.js';
+import { ThinkxxClient } from '@thinkxx/sdk';
 import {
   View,
   Text,
@@ -7,6 +9,7 @@ import {
   SafeAreaView,
   Alert,
   Animated,
+  TextInput,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useWallet } from '../providers/WalletProvider';
@@ -14,17 +17,26 @@ import { theme } from '../theme';
 
 interface HeartbeatScreenProps {
   onBack: () => void;
+  initialPlanAddress?: string | null;
 }
 
 /**
  * HeartbeatScreen — allows the owner to send a heartbeat
  * proving they are still active.
  */
-export default function HeartbeatScreen({ onBack }: HeartbeatScreenProps): React.JSX.Element {
-  const { connected } = useWallet();
+export default function HeartbeatScreen({ onBack, initialPlanAddress = null }: HeartbeatScreenProps): React.JSX.Element {
+  const { connected, publicKey, connection, signAndSendTransaction } = useWallet();
   const [lastBeat, setLastBeat] = useState<Date | null>(null);
   const [sending, setSending] = useState(false);
+  const [planAddress, setPlanAddress] = useState(initialPlanAddress ?? '');
+  const [lastSignature, setLastSignature] = useState<string | null>(null);
   const pulseAnim = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    if (initialPlanAddress) {
+      setPlanAddress(initialPlanAddress);
+    }
+  }, [initialPlanAddress]);
 
   // Pulse animation
   useEffect(() => {
@@ -51,19 +63,34 @@ export default function HeartbeatScreen({ onBack }: HeartbeatScreenProps): React
       Alert.alert('Not Connected', 'Connect your wallet first');
       return;
     }
+    if (!publicKey) {
+      Alert.alert('Wallet Required', 'Connect your wallet first');
+      return;
+    }
+
+    let planPda: PublicKey;
+    try {
+      planPda = new PublicKey(planAddress.trim());
+    } catch {
+      Alert.alert('Invalid Plan', 'Enter a valid plan account address');
+      return;
+    }
+
     setSending(true);
     try {
-      // TODO(#9): Build heartbeat TX via ThinkxxClient.buildHeartbeat
-      // and send via MWA transact flow
-      await new Promise(resolve => setTimeout(resolve, 800));
+      const client = new ThinkxxClient(connection);
+      const instruction = client.buildHeartbeat(publicKey, planPda);
+      const signature = await signAndSendTransaction(new Transaction().add(instruction));
+
       setLastBeat(new Date());
-      Alert.alert('Heartbeat Sent', 'Your activity has been recorded on-chain ✓');
+      setLastSignature(signature);
+      Alert.alert('Heartbeat Sent', `Your activity has been recorded on-chain.\n\nSignature:\n${signature}`);
     } catch (err) {
       Alert.alert('Error', err instanceof Error ? err.message : 'Failed to send heartbeat');
     } finally {
       setSending(false);
     }
-  }, [connected]);
+  }, [connected, connection, planAddress, publicKey, signAndSendTransaction]);
 
   const formatTimeSince = (date: Date): string => {
     const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
@@ -111,8 +138,26 @@ export default function HeartbeatScreen({ onBack }: HeartbeatScreenProps): React
             <Text style={styles.infoTimestamp}>
               {lastBeat.toLocaleString()}
             </Text>
+            {lastSignature && (
+              <Text style={styles.signatureText}>
+                {lastSignature.slice(0, 8)}...{lastSignature.slice(-8)}
+              </Text>
+            )}
           </View>
         )}
+
+        <View style={styles.planCard}>
+          <Text style={styles.planLabel}>Plan Address</Text>
+          <TextInput
+            style={styles.planInput}
+            value={planAddress}
+            onChangeText={setPlanAddress}
+            placeholder="Plan PDA (base58)"
+            placeholderTextColor={theme.colors.textMuted}
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+        </View>
 
         {/* Heartbeat Button */}
         <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
@@ -231,6 +276,34 @@ const styles = StyleSheet.create({
     fontSize: theme.fontSize.xs,
     color: theme.colors.textMuted,
     marginTop: theme.spacing.xs,
+  },
+  signatureText: {
+    fontSize: theme.fontSize.xs,
+    color: theme.colors.textSecondary,
+    marginTop: theme.spacing.sm,
+  },
+  planCard: {
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.borderRadius.md,
+    padding: theme.spacing.lg,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    width: '100%',
+    gap: theme.spacing.sm,
+  },
+  planLabel: {
+    fontSize: theme.fontSize.sm,
+    color: theme.colors.textSecondary,
+  },
+  planInput: {
+    backgroundColor: theme.colors.surfaceElevated,
+    borderRadius: theme.borderRadius.sm,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    color: theme.colors.text,
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: theme.spacing.md,
+    fontSize: theme.fontSize.sm,
   },
   heartbeatButton: {
     width: 160,

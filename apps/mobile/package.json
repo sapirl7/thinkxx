@@ -13,6 +13,8 @@
     "build": "echo 'mobile build via expo'"
   },
   "dependencies": {
+    "@solana-mobile/mobile-wallet-adapter-protocol": "^2.2.5",
+    "@solana-mobile/mobile-wallet-adapter-protocol-web3js": "^2.2.5",
     "@solana/web3.js": "^1.95.0",
     "@thinkxx/config": "workspace:*",
     "@thinkxx/notifications": "workspace:*",

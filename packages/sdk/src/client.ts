@@ -2,6 +2,24 @@ import { Connection, PublicKey, TransactionInstruction, SystemProgram } from '@s
 import { PROGRAM_ID } from '@thinkxx/config';
 import { derivePlanPda, deriveGuardianSetPda, deriveSolVaultPda, deriveVaultAuthorityPda, deriveClaimPda } from './pda';
 
+const INSTRUCTION_DISCRIMINATORS = {
+  initialize_plan: Buffer.from('cfa1e6c2564da908', 'hex'),
+  heartbeat: Buffer.from('ca683806f0aa3f86', 'hex'),
+  deposit_sol: Buffer.from('6c514e757d9b38c8', 'hex'),
+  start_claim: Buffer.from('bde6077e060a785c', 'hex'),
+  cancel_claim: Buffer.from('b301d4315190dd8c', 'hex'),
+  activate_plan: Buffer.from('bc9ac33525df1366', 'hex'),
+  pause_plan: Buffer.from('d0c8a0abd45ef9e9', 'hex'),
+  resume_plan: Buffer.from('43adfb2aa92284a1', 'hex'),
+  add_guardian: Buffer.from('a7bdaa1b4af0c9f1', 'hex'),
+  remove_guardian: Buffer.from('4875a0f49bb94712', 'hex'),
+  approve_claim: Buffer.from('4ae4d33f8cff45d2', 'hex'),
+  veto_claim: Buffer.from('7ee2aa1de02ea419', 'hex'),
+  finalize_claim: Buffer.from('56a2caf1887d3495', 'hex'),
+  set_emergency_bucket: Buffer.from('36ef72adba3576b2', 'hex'),
+  emergency_withdraw: Buffer.from('ef2dcb409649da5c', 'hex'),
+} as const;
+
 /**
  * Plan mode enum — matches the Rust PlanMode on-chain.
  */
@@ -387,12 +405,16 @@ export class ThinkxxClient {
 
   /**
    * Compute Anchor instruction discriminator.
-   * SHA256("global:<instruction_name>")[0..8]
+   * Stored as constants to keep the SDK React Native compatible.
    */
   private getDiscriminator(name: string): Buffer {
-    const { createHash } = require('crypto');
-    const hash = createHash('sha256').update(`global:${name}`).digest();
-    return Buffer.from(hash.subarray(0, 8));
+    const discriminator = INSTRUCTION_DISCRIMINATORS[name as keyof typeof INSTRUCTION_DISCRIMINATORS];
+
+    if (!discriminator) {
+      throw new Error(`Unsupported instruction discriminator: ${name}`);
+    }
+
+    return discriminator;
   }
 
   /**

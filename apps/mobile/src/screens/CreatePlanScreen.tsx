@@ -1,4 +1,6 @@
 import React, { useState, useCallback } from 'react';
+import { PublicKey, Transaction } from '@solana/web3.js';
+import { PlanMode, ThinkxxClient } from '@thinkxx/sdk';
 import {
   View,
   Text,
@@ -10,6 +12,7 @@ import {
   Alert,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
+import { useWallet } from '../providers/WalletProvider';
 import { theme } from '../theme';
 
 type PlanModeOption = 'medical' | 'legal_risk' | 'legacy';
@@ -52,18 +55,26 @@ const PLAN_MODES: PlanModeInfo[] = [
 
 interface CreatePlanScreenProps {
   onBack: () => void;
-  onCreated: () => void;
+  onCreated: (planAddress: string) => void;
 }
+
+const MODE_TO_PLAN_MODE: Record<PlanModeOption, PlanMode> = {
+  medical: PlanMode.Medical,
+  legal_risk: PlanMode.LegalRisk,
+  legacy: PlanMode.Legacy,
+};
 
 /**
  * CreatePlanScreen — wizard for creating a new emergency access plan.
  * Collects mode, beneficiary, and timing parameters.
  */
 export default function CreatePlanScreen({ onBack, onCreated }: CreatePlanScreenProps): React.JSX.Element {
+  const { connection, publicKey, signAndSendTransaction } = useWallet();
   const [selectedMode, setSelectedMode] = useState<PlanModeOption | null>(null);
   const [beneficiary, setBeneficiary] = useState('');
   const [inactivityDays, setInactivityDays] = useState('');
   const [graceDays, setGraceDays] = useState('');
+  const [creating, setCreating] = useState(false);
 
   const selectedModeInfo = PLAN_MODES.find(m => m.key === selectedMode);
 
@@ -76,27 +87,64 @@ export default function CreatePlanScreen({ onBack, onCreated }: CreatePlanScreen
     }
   }, []);
 
-  const handleCreate = useCallback(() => {
+  const handleCreate = useCallback(async () => {
     if (!selectedMode) {
       Alert.alert('Select Mode', 'Please select a plan mode');
       return;
     }
-    if (!beneficiary || beneficiary.length < 32) {
-      Alert.alert('Invalid Beneficiary', 'Please enter a valid Solana address');
-      return;
-    }
-    if (!inactivityDays || parseInt(inactivityDays, 10) < 1) {
-      Alert.alert('Invalid Timing', 'Inactivity period must be at least 1 day');
+    if (!publicKey) {
+      Alert.alert('Wallet Required', 'Connect your wallet first');
       return;
     }
 
-    // TODO(#8): Build transaction via ThinkxxClient.buildInitializePlan
-    // and send via MWA transact flow
-    Alert.alert(
-      'Plan Preview',
-      `Mode: ${selectedModeInfo?.label}\nBeneficiary: ${beneficiary.slice(0, 8)}...\nInactivity: ${inactivityDays} days\nGrace: ${graceDays} days\n\n⚠️ MWA signing not yet available`,
-    );
-  }, [selectedMode, beneficiary, inactivityDays, graceDays, selectedModeInfo]);
+    let beneficiaryPublicKey: PublicKey;
+    try {
+      beneficiaryPublicKey = new PublicKey(beneficiary.trim());
+    } catch {
+      Alert.alert('Invalid Beneficiary', 'Please enter a valid Solana address');
+      return;
+    }
+
+    const inactivityValue = Number.parseInt(inactivityDays, 10);
+    const graceValue = Number.parseInt(graceDays, 10);
+
+    if (!Number.isInteger(inactivityValue) || inactivityValue < 1) {
+      Alert.alert('Invalid Timing', 'Inactivity period must be at least 1 day');
+      return;
+    }
+    if (!Number.isInteger(graceValue) || graceValue < 1) {
+      Alert.alert('Invalid Timing', 'Grace period must be at least 1 day');
+      return;
+    }
+
+    setCreating(true);
+
+    try {
+      const client = new ThinkxxClient(connection);
+      const planId = BigInt(Date.now());
+      const { instruction, planPda } = client.buildInitializePlan(publicKey, {
+        planId,
+        mode: MODE_TO_PLAN_MODE[selectedMode],
+        beneficiary: beneficiaryPublicKey,
+        inactivityDuration: BigInt(inactivityValue * 86_400),
+        gracePeriod: BigInt(graceValue * 86_400),
+        guardianQuorum: 0,
+      });
+
+      const signature = await signAndSendTransaction(new Transaction().add(instruction));
+
+      Alert.alert(
+        'Plan Created',
+        `Plan address:\n${planPda.toBase58()}\n\nSignature:\n${signature}`,
+        [{ text: 'Continue', onPress: () => onCreated(planPda.toBase58()) }],
+        { cancelable: false }
+      );
+    } catch (err) {
+      Alert.alert('Create Plan Failed', err instanceof Error ? err.message : 'Failed to create plan');
+    } finally {
+      setCreating(false);
+    }
+  }, [beneficiary, connection, graceDays, inactivityDays, onCreated, publicKey, selectedMode, signAndSendTransaction]);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -187,12 +235,12 @@ export default function CreatePlanScreen({ onBack, onCreated }: CreatePlanScreen
 
         {/* Create Button */}
         <TouchableOpacity
-          style={[styles.createButton, !selectedMode && styles.createButtonDisabled]}
+          style={[styles.createButton, (!selectedMode || creating) && styles.createButtonDisabled]}
           onPress={handleCreate}
-          disabled={!selectedMode}
+          disabled={!selectedMode || creating}
           activeOpacity={0.8}
         >
-          <Text style={styles.createButtonText}>Create Plan</Text>
+          <Text style={styles.createButtonText}>{creating ? 'Awaiting Wallet...' : 'Create Plan'}</Text>
         </TouchableOpacity>
 
         <Text style={styles.disclaimer}>

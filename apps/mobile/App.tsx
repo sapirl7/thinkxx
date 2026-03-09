@@ -24,6 +24,7 @@ type Screen =
 function AppNavigator(): React.JSX.Element {
   const { connected, disconnect } = useWallet();
   const [screen, setScreen] = useState<Screen>('dashboard');
+  const [lastPlanAddress, setLastPlanAddress] = useState<string | null>(null);
 
   if (!connected) {
     return <ConnectScreen />;
@@ -34,13 +35,17 @@ function AppNavigator(): React.JSX.Element {
       return (
         <CreatePlanScreen
           onBack={() => setScreen('dashboard')}
-          onCreated={() => setScreen('dashboard')}
+          onCreated={(planAddress: string) => {
+            setLastPlanAddress(planAddress);
+            setScreen('dashboard');
+          }}
         />
       );
     case 'heartbeat':
       return (
         <HeartbeatScreen
           onBack={() => setScreen('dashboard')}
+          initialPlanAddress={lastPlanAddress}
         />
       );
     case 'plan_detail':
@@ -64,7 +69,14 @@ function AppNavigator(): React.JSX.Element {
         />
       );
     default:
-      return <DashboardScreen />;
+      return (
+        <DashboardScreen
+          onCreatePlan={() => setScreen('create_plan')}
+          onHeartbeat={() => setScreen('heartbeat')}
+          onSettings={() => setScreen('settings')}
+          lastPlanAddress={lastPlanAddress}
+        />
+      );
   }
 }
 
