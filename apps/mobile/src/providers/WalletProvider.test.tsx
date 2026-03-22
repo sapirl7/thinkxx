@@ -1,241 +1,279 @@
 /**
- * WalletProvider tests — covers connect, disconnect, signAndSendTransaction logic.
- * Priority 1 — validates fixes from P2 audit findings #3.
+ * WalletProvider tests — full renderHook-based tests.
  *
- * Tests the transaction flow logic and error mapping directly.
+ * Uses shared mock-kit. Covers:
+ * - connect() happy path + error mapping
+ * - disconnect() with deauthorize + state clear
+ * - signAndSendTransaction() paths and errors
+ *
+ * @jest-environment jsdom
  */
 
+import { renderHook, act } from '@testing-library/react';
+import React, { type ReactNode } from 'react';
 import { PublicKey, Transaction } from '@solana/web3.js';
 import { Buffer } from 'buffer';
 
-// ── Error Message Mapping (extracted from WalletProvider.tsx) ──
+import {
+  resetMobileMocks,
+  mockTransact,
+  mockWallet,
+  mockConnection,
+  defaultAuthResponse,
+  defaultCapabilities,
+} from '../../test/setup';
 
-const MWA_ERROR_CODES = {
-  ERROR_WALLET_NOT_FOUND: 1,
-} as const;
+// Import the real provider + hook
+import { WalletProvider, useWallet } from '../providers/WalletProvider';
 
-const MWA_PROTOCOL_ERROR_CODES = {
-  ERROR_AUTHORIZATION_FAILED: -2,
-  ERROR_NOT_SUBMITTED: -4,
-  ERROR_NOT_SIGNED: -5,
-} as const;
-
-function mapMWAError(code: number, message: string): string {
-  if (code === MWA_ERROR_CODES.ERROR_WALLET_NOT_FOUND) {
-    return 'No compatible Solana wallet found. Please install Phantom or Solflare.';
-  }
-  return `Connection failed: ${message}`;
+function wrapper({ children }: { children: ReactNode }) {
+  return <WalletProvider>{children}</WalletProvider>;
 }
 
-function mapMWAProtocolError(code: number, message: string): string {
-  switch (code) {
-    case MWA_PROTOCOL_ERROR_CODES.ERROR_AUTHORIZATION_FAILED:
-      return 'Authorization was canceled or denied by the wallet.';
-    case MWA_PROTOCOL_ERROR_CODES.ERROR_NOT_SUBMITTED:
-      return 'Wallet signed the transaction but did not submit it to the network.';
-    case MWA_PROTOCOL_ERROR_CODES.ERROR_NOT_SIGNED:
-      return 'Wallet did not sign the transaction. Please try again.';
-    default:
-      return `Protocol error: ${message}`;
-  }
-}
+beforeEach(() => {
+  resetMobileMocks();
+});
 
-// ── Capability-Aware Flow Logic ──
+describe('WalletProvider', () => {
+  describe('connect()', () => {
+    it('sets connected, publicKey, clears error on success', async () => {
+      const { result } = renderHook(() => useWallet(), { wrapper });
 
-interface WalletCapabilities {
-  supports_sign_and_send_transactions: boolean;
-  features: string[];
-}
+      expect(result.current.connected).toBe(false);
+      expect(result.current.publicKey).toBeNull();
 
-const SOLANA_SIGN_TRANSACTIONS_FEATURE = 'solana:signTransactions';
+      await act(async () => {
+        await result.current.connect();
+      });
 
-function selectSigningMethod(caps: WalletCapabilities): 'signAndSend' | 'signOnly' | 'none' {
-  if (caps.supports_sign_and_send_transactions) {
-    return 'signAndSend';
-  }
-  if (caps.features.includes(SOLANA_SIGN_TRANSACTIONS_FEATURE)) {
-    return 'signOnly';
-  }
-  return 'none';
-}
-
-// ── Session State ──
-
-interface WalletSessionState {
-  connected: boolean;
-  publicKey: PublicKey | null;
-  authToken: string | null;
-  error: string | null;
-}
-
-function createInitialState(): WalletSessionState {
-  return {
-    connected: false,
-    publicKey: null,
-    authToken: null,
-    error: null,
-  };
-}
-
-function applyConnect(
-  state: WalletSessionState,
-  pubkeyB64: string,
-  authToken: string,
-): WalletSessionState {
-  const pubkeyBytes = Buffer.from(pubkeyB64, 'base64');
-  const publicKey = new PublicKey(pubkeyBytes);
-  return {
-    ...state,
-    connected: true,
-    publicKey,
-    authToken,
-    error: null,
-  };
-}
-
-function applyDisconnect(): WalletSessionState {
-  return createInitialState();
-}
-
-// ── Tests ──────────────────────────────────────────────
-
-describe('WalletProvider logic', () => {
-  describe('Error message mapping', () => {
-    it('maps ERROR_WALLET_NOT_FOUND', () => {
-      const msg = mapMWAError(MWA_ERROR_CODES.ERROR_WALLET_NOT_FOUND, 'not found');
-      expect(msg).toContain('No compatible Solana wallet');
-      expect(msg).toContain('Phantom');
+      expect(result.current.connected).toBe(true);
+      expect(result.current.publicKey).toBeInstanceOf(PublicKey);
+      expect(result.current.error).toBeNull();
     });
 
-    it('maps unknown MWA error to generic', () => {
-      const msg = mapMWAError(999, 'some error');
-      expect(msg).toContain('Connection failed');
-    });
+    it('maps ERROR_WALLET_NOT_FOUND to human-readable message', async () => {
+      const { SolanaMobileWalletAdapterError, SolanaMobileWalletAdapterErrorCode } =
+        require('@solana-mobile/mobile-wallet-adapter-protocol');
 
-    it('maps ERROR_AUTHORIZATION_FAILED', () => {
-      const msg = mapMWAProtocolError(
-        MWA_PROTOCOL_ERROR_CODES.ERROR_AUTHORIZATION_FAILED,
-        'denied',
+      mockTransact.mockRejectedValueOnce(
+        new SolanaMobileWalletAdapterError(
+          'not found',
+          SolanaMobileWalletAdapterErrorCode.ERROR_WALLET_NOT_FOUND,
+        ),
       );
-      expect(msg).toContain('denied');
+
+      const { result } = renderHook(() => useWallet(), { wrapper });
+
+      await act(async () => {
+        await result.current.connect();
+      });
+
+      expect(result.current.error).toContain('No compatible Solana wallet');
+      expect(result.current.connected).toBe(false);
     });
 
-    it('maps ERROR_NOT_SUBMITTED', () => {
-      const msg = mapMWAProtocolError(
-        MWA_PROTOCOL_ERROR_CODES.ERROR_NOT_SUBMITTED,
-        'not submitted',
+    it('maps ERROR_AUTHORIZATION_FAILED to human-readable message', async () => {
+      const { SolanaMobileWalletAdapterProtocolError, SolanaMobileWalletAdapterProtocolErrorCode } =
+        require('@solana-mobile/mobile-wallet-adapter-protocol');
+
+      mockTransact.mockRejectedValueOnce(
+        new SolanaMobileWalletAdapterProtocolError(
+          'denied',
+          SolanaMobileWalletAdapterProtocolErrorCode.ERROR_AUTHORIZATION_FAILED,
+        ),
       );
-      expect(msg).toContain('signed');
-      expect(msg).toContain('did not submit');
-    });
 
-    it('maps ERROR_NOT_SIGNED', () => {
-      const msg = mapMWAProtocolError(
-        MWA_PROTOCOL_ERROR_CODES.ERROR_NOT_SIGNED,
-        'not signed',
-      );
-      expect(msg).toContain('did not sign');
-    });
+      const { result } = renderHook(() => useWallet(), { wrapper });
 
-    it('maps unknown protocol error to generic', () => {
-      const msg = mapMWAProtocolError(-999, 'mystery');
-      expect(msg).toContain('Protocol error');
+      await act(async () => {
+        await result.current.connect();
+      });
+
+      expect(result.current.error).toContain('canceled or denied');
+      expect(result.current.connected).toBe(false);
     });
   });
 
-  describe('Signing method selection', () => {
-    it('prefers signAndSend when supported', () => {
-      expect(selectSigningMethod({
-        supports_sign_and_send_transactions: true,
-        features: [],
-      })).toBe('signAndSend');
+  describe('disconnect()', () => {
+    it('calls deauthorize when authToken present and clears all state', async () => {
+      const { result } = renderHook(() => useWallet(), { wrapper });
+
+      // Connect first
+      await act(async () => {
+        await result.current.connect();
+      });
+      expect(result.current.connected).toBe(true);
+
+      // Disconnect
+      act(() => {
+        result.current.disconnect();
+      });
+
+      expect(result.current.connected).toBe(false);
+      expect(result.current.publicKey).toBeNull();
+      // deauthorize called via transact
+      expect(mockTransact).toHaveBeenCalled();
+    });
+  });
+
+  describe('signAndSendTransaction()', () => {
+    it('throws when not connected', async () => {
+      const { result } = renderHook(() => useWallet(), { wrapper });
+
+      await expect(
+        act(async () => {
+          await result.current.signAndSendTransaction(new Transaction());
+        }),
+      ).rejects.toThrow('Connect your wallet first');
     });
 
-    it('falls back to signOnly when feature present', () => {
-      expect(selectSigningMethod({
+    it('uses signAndSendTransactions when supported', async () => {
+      const { result } = renderHook(() => useWallet(), { wrapper });
+
+      await act(async () => {
+        await result.current.connect();
+      });
+
+      let signature: string | undefined;
+      await act(async () => {
+        signature = await result.current.signAndSendTransaction(new Transaction());
+      });
+
+      expect(signature).toBe('mock-signature-sas');
+      expect(mockWallet.signAndSendTransactions).toHaveBeenCalled();
+      expect(mockConnection.confirmTransaction).toHaveBeenCalled();
+    });
+
+    it('falls back to signTransactions + sendRawTransaction', async () => {
+      // getCapabilities returns fallback-only for ALL transact calls
+      mockWallet.getCapabilities.mockResolvedValue({
         supports_sign_and_send_transactions: false,
-        features: [SOLANA_SIGN_TRANSACTIONS_FEATURE],
-      })).toBe('signOnly');
+        features: ['solana:signTransactions'],
+      });
+
+      // signTransactions must return something serializable
+      const mockSignedTx = new Transaction();
+      // Patch serialize since the TX has no real signatures
+      jest.spyOn(mockSignedTx, 'serialize').mockReturnValue(Buffer.alloc(100));
+      mockWallet.signTransactions.mockResolvedValue([mockSignedTx]);
+
+      const { result } = renderHook(() => useWallet(), { wrapper });
+
+      await act(async () => {
+        await result.current.connect();
+      });
+
+      let signature: string | undefined;
+      await act(async () => {
+        signature = await result.current.signAndSendTransaction(new Transaction());
+      });
+
+      expect(signature).toBe('mock-signature-sendraw');
+      expect(mockWallet.signTransactions).toHaveBeenCalled();
+      expect(mockConnection.sendRawTransaction).toHaveBeenCalled();
     });
 
-    it('returns none when neither available', () => {
-      expect(selectSigningMethod({
+    it('throws when wallet supports neither signing method', async () => {
+      mockWallet.getCapabilities.mockResolvedValue({
         supports_sign_and_send_transactions: false,
         features: [],
-      })).toBe('none');
+      });
+
+      const { result } = renderHook(() => useWallet(), { wrapper });
+
+      await act(async () => {
+        await result.current.connect();
+      });
+
+      await expect(
+        act(async () => {
+          await result.current.signAndSendTransaction(new Transaction());
+        }),
+      ).rejects.toThrow('does not support transaction submission');
     });
 
-    it('signAndSend takes priority over signOnly', () => {
-      expect(selectSigningMethod({
-        supports_sign_and_send_transactions: true,
-        features: [SOLANA_SIGN_TRANSACTIONS_FEATURE],
-      })).toBe('signAndSend');
-    });
-  });
+    it('throws when no signature returned', async () => {
+      mockWallet.signAndSendTransactions.mockResolvedValue([undefined]);
 
-  describe('Session state', () => {
-    it('initial state is disconnected', () => {
-      const state = createInitialState();
-      expect(state.connected).toBe(false);
-      expect(state.publicKey).toBeNull();
-      expect(state.authToken).toBeNull();
-      expect(state.error).toBeNull();
-    });
+      const { result } = renderHook(() => useWallet(), { wrapper });
 
-    it('connect sets connected + publicKey', () => {
-      const initial = createInitialState();
-      const pubkeyB64 = Buffer.from(PublicKey.default.toBuffer()).toString('base64');
-      const state = applyConnect(initial, pubkeyB64, 'auth-token-123');
+      await act(async () => {
+        await result.current.connect();
+      });
 
-      expect(state.connected).toBe(true);
-      expect(state.publicKey).toBeInstanceOf(PublicKey);
-      expect(state.authToken).toBe('auth-token-123');
-      expect(state.error).toBeNull();
+      await expect(
+        act(async () => {
+          await result.current.signAndSendTransaction(new Transaction());
+        }),
+      ).rejects.toThrow('did not return a transaction signature');
     });
 
-    it('disconnect resets all state', () => {
-      const pubkeyB64 = Buffer.from(PublicKey.default.toBuffer()).toString('base64');
-      const connected = applyConnect(createInitialState(), pubkeyB64, 'token');
-      const disconnected = applyDisconnect();
+    it('throws when confirmTransaction returns err', async () => {
+      mockConnection.confirmTransaction.mockResolvedValue({
+        value: { err: { InstructionError: [0, 'Custom'] } },
+      });
 
-      expect(disconnected.connected).toBe(false);
-      expect(disconnected.publicKey).toBeNull();
-      expect(disconnected.authToken).toBeNull();
+      const { result } = renderHook(() => useWallet(), { wrapper });
+
+      await act(async () => {
+        await result.current.connect();
+      });
+
+      await expect(
+        act(async () => {
+          await result.current.signAndSendTransaction(new Transaction());
+        }),
+      ).rejects.toThrow('Transaction failed');
     });
 
-    it('connect clears previous error', () => {
-      const withError: WalletSessionState = {
-        ...createInitialState(),
-        error: 'Previous error',
-      };
-      const pubkeyB64 = Buffer.from(PublicKey.default.toBuffer()).toString('base64');
-      const state = applyConnect(withError, pubkeyB64, 'token');
+    it('maps ERROR_NOT_SUBMITTED to human-readable message', async () => {
+      const { SolanaMobileWalletAdapterProtocolError, SolanaMobileWalletAdapterProtocolErrorCode } =
+        require('@solana-mobile/mobile-wallet-adapter-protocol');
 
-      expect(state.error).toBeNull();
-    });
-  });
+      // Make transact throw during signAndSend (second call, after connect)
+      const { result } = renderHook(() => useWallet(), { wrapper });
 
-  describe('Transaction assertion', () => {
-    it('not connected throws', () => {
-      const connected = false;
-      expect(() => {
-        if (!connected) throw new Error('Connect your wallet first');
-      }).toThrow('Connect your wallet first');
-    });
+      await act(async () => {
+        await result.current.connect();
+      });
 
-    it('no signature returned throws', () => {
-      const signatures = [undefined];
-      expect(() => {
-        const sig = signatures[0];
-        if (!sig) throw new Error('Wallet did not return a transaction signature');
-      }).toThrow('did not return a transaction signature');
+      // Override transact for the sign call
+      mockTransact.mockRejectedValueOnce(
+        new SolanaMobileWalletAdapterProtocolError(
+          'not submitted',
+          SolanaMobileWalletAdapterProtocolErrorCode.ERROR_NOT_SUBMITTED,
+        ),
+      );
+
+      await expect(
+        act(async () => {
+          await result.current.signAndSendTransaction(new Transaction());
+        }),
+      ).rejects.toThrow('did not submit');
     });
 
-    it('confirmation error throws', () => {
-      const confirmResult = { value: { err: { InstructionError: [0, 'Custom'] } } };
-      expect(() => {
-        if (confirmResult.value.err) throw new Error('Transaction failed on-chain');
-      }).toThrow('Transaction failed');
+    it('maps ERROR_NOT_SIGNED to human-readable message', async () => {
+      const { SolanaMobileWalletAdapterProtocolError, SolanaMobileWalletAdapterProtocolErrorCode } =
+        require('@solana-mobile/mobile-wallet-adapter-protocol');
+
+      const { result } = renderHook(() => useWallet(), { wrapper });
+
+      await act(async () => {
+        await result.current.connect();
+      });
+
+      mockTransact.mockRejectedValueOnce(
+        new SolanaMobileWalletAdapterProtocolError(
+          'not signed',
+          SolanaMobileWalletAdapterProtocolErrorCode.ERROR_NOT_SIGNED,
+        ),
+      );
+
+      await expect(
+        act(async () => {
+          await result.current.signAndSendTransaction(new Transaction());
+        }),
+      ).rejects.toThrow('did not sign');
     });
   });
 });

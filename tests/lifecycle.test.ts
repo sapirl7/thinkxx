@@ -1,91 +1,368 @@
 /**
- * Lifecycle integration tests.
+ * lifecycle integration tests — end-to-end state machine.
  *
- * Tests: activate/pause/resume transitions, state machine enforcement.
+ * Covers:
+ * - Full cycle: Draft → Active → Pause → Resume → ClaimPending → Claimed
+ * - Draft → Active via deposit
+ * - Pause/Resume: happy paths and invalid state transitions
+ * - Close plan: Draft close, refund rent
+ * - Invalid transitions: pause Draft, resume Active, close Active
  */
 import * as anchor from '@coral-xyz/anchor';
-import { Keypair, PublicKey } from '@solana/web3.js';
+import { Keypair, PublicKey, SystemProgram, LAMPORTS_PER_SOL } from '@solana/web3.js';
 import { expect } from 'chai';
-import { airdrop, derivePlanPDAs, createTestContext, DEFAULT_PLAN_PARAMS } from './helpers';
+import {
+  initTestEnvironment,
+  getProvider,
+  getProgram,
+  getBankrunContext,
+  createTestContext,
+  fundContext,
+  fundSigner,
+  createPlanFixture,
+  depositSolFixture,
+  addGuardianFixture,
+  fetchPlan,
+  expectAnchorError,
+  expectAccountClosed,
+  warpPastInactivityWindow,
+  warpPastGraceDeadline,
+  DEFAULT_PLAN_PARAMS,
+  TestContext,
+  PlanFixture,
+} from './helpers';
 
 describe('lifecycle', () => {
-  const provider = anchor.AnchorProvider.env();
-  anchor.setProvider(provider);
-  const programId = provider.wallet.publicKey;
-
-  let ctx: ReturnType<typeof createTestContext>;
+  let provider: anchor.AnchorProvider;
+  let program: ReturnType<typeof getProgram>;
 
   before(async () => {
-    ctx = createTestContext(provider);
-    await airdrop(provider.connection, ctx.owner.publicKey, 10);
+    await initTestEnvironment();
+    provider = getProvider();
+    program = getProgram();
   });
 
-  it('Draft → Active via activate_plan', () => {
-    const validTransitions: Record<string, string[]> = {
-      Draft: ['Active'],
-      Active: ['Paused', 'ClaimPending'],
-      Paused: ['Active'],
-      ClaimPending: ['Active', 'Claimed'],
-      Claimed: [],
-    };
+  // =========================================================================
+  // pause_plan
+  // =========================================================================
+  describe('pause_plan', () => {
+    it('pauses an Active plan', async () => {
+      const ctx = createTestContext();
+      await fundContext(provider, ctx);
+      const fixture = await createPlanFixture({ program, provider, ctx });
 
-    expect(validTransitions['Draft']).to.include('Active');
+      // Activate via deposit
+      await depositSolFixture({
+        program, ctx, fixture,
+        amountLamports: new anchor.BN(LAMPORTS_PER_SOL),
+      });
+
+      await (program.methods as any)
+        .pausePlan()
+        .accounts({ owner: ctx.owner.publicKey, plan: fixture.planPda })
+        .signers([ctx.owner])
+        .rpc();
+
+      const plan = await fetchPlan(program, fixture.planPda);
+      expect(Object.keys(plan.state)[0]).to.equal('paused');
+    });
+
+    it('rejects pausing a Draft plan', async () => {
+      const ctx = createTestContext();
+      await fundContext(provider, ctx);
+      const fixture = await createPlanFixture({ program, provider, ctx });
+
+      await expectAnchorError(
+        (program.methods as any)
+          .pausePlan()
+          .accounts({ owner: ctx.owner.publicKey, plan: fixture.planPda })
+          .signers([ctx.owner])
+          .rpc(),
+        'PlanNotActive',
+      );
+    });
+
+    it('rejects non-owner pause', async () => {
+      const ctx = createTestContext();
+      await fundContext(provider, ctx);
+      const fixture = await createPlanFixture({ program, provider, ctx });
+
+      await depositSolFixture({
+        program, ctx, fixture,
+        amountLamports: new anchor.BN(LAMPORTS_PER_SOL),
+      });
+
+      const impostor = Keypair.generate();
+      await fundSigner(provider, impostor.publicKey, 2);
+
+      await expectAnchorError(
+        (program.methods as any)
+          .pausePlan()
+          .accounts({ owner: impostor.publicKey, plan: fixture.planPda })
+          .signers([impostor])
+          .rpc(),
+        'NotOwner',
+      );
+    });
   });
 
-  it('Active → Paused via pause_plan (owner only)', () => {
-    const validTransitions: Record<string, string[]> = {
-      Active: ['Paused', 'ClaimPending'],
-    };
-    expect(validTransitions['Active']).to.include('Paused');
+  // =========================================================================
+  // resume_plan
+  // =========================================================================
+  describe('resume_plan', () => {
+    it('resumes a Paused plan back to Active', async () => {
+      const ctx = createTestContext();
+      await fundContext(provider, ctx);
+      const fixture = await createPlanFixture({ program, provider, ctx });
 
-    // TODO: program.methods.pausePlan()
-    //   .accounts({ owner, plan })
-    //   .signers([owner])
-    //   .rpc();
-    // const plan = await program.account.plan.fetch(planPda);
-    // expect(plan.status).to.deep.equal({ paused: {} });
+      await depositSolFixture({
+        program, ctx, fixture,
+        amountLamports: new anchor.BN(LAMPORTS_PER_SOL),
+      });
+
+      // Pause
+      await (program.methods as any)
+        .pausePlan()
+        .accounts({ owner: ctx.owner.publicKey, plan: fixture.planPda })
+        .signers([ctx.owner])
+        .rpc();
+
+      // Resume
+      await (program.methods as any)
+        .resumePlan()
+        .accounts({ owner: ctx.owner.publicKey, plan: fixture.planPda })
+        .signers([ctx.owner])
+        .rpc();
+
+      const plan = await fetchPlan(program, fixture.planPda);
+      expect(Object.keys(plan.state)[0]).to.equal('active');
+      expect(plan.lastHeartbeat.toNumber()).to.be.greaterThan(0);
+    });
+
+    it('rejects resuming non-Paused plan', async () => {
+      const ctx = createTestContext();
+      await fundContext(provider, ctx);
+      const fixture = await createPlanFixture({ program, provider, ctx });
+
+      await depositSolFixture({
+        program, ctx, fixture,
+        amountLamports: new anchor.BN(LAMPORTS_PER_SOL),
+      });
+
+      // Plan is Active, not Paused
+      await expectAnchorError(
+        (program.methods as any)
+          .resumePlan()
+          .accounts({ owner: ctx.owner.publicKey, plan: fixture.planPda })
+          .signers([ctx.owner])
+          .rpc(),
+        'PlanNotPaused',
+      );
+    });
+
+    it('rejects non-owner resume', async () => {
+      const ctx = createTestContext();
+      await fundContext(provider, ctx);
+      const fixture = await createPlanFixture({ program, provider, ctx });
+
+      await depositSolFixture({
+        program, ctx, fixture,
+        amountLamports: new anchor.BN(LAMPORTS_PER_SOL),
+      });
+
+      await (program.methods as any)
+        .pausePlan()
+        .accounts({ owner: ctx.owner.publicKey, plan: fixture.planPda })
+        .signers([ctx.owner])
+        .rpc();
+
+      const impostor = Keypair.generate();
+      await fundSigner(provider, impostor.publicKey, 2);
+
+      await expectAnchorError(
+        (program.methods as any)
+          .resumePlan()
+          .accounts({ owner: impostor.publicKey, plan: fixture.planPda })
+          .signers([impostor])
+          .rpc(),
+        'NotOwner',
+      );
+    });
   });
 
-  it('Paused → Active via resume_plan resets heartbeat', () => {
-    // After resume, last_heartbeat should be updated to prevent
-    // claim trigger from time spent paused
-    const beforePause = Math.floor(Date.now() / 1000);
-    const simulatedResume = beforePause + 3600;
+  // =========================================================================
+  // close_plan
+  // =========================================================================
+  describe('close_plan', () => {
+    it('closes Draft plan and reclaims rent', async () => {
+      const ctx = createTestContext();
+      await fundContext(provider, ctx);
+      const fixture = await createPlanFixture({ program, provider, ctx });
 
-    // TODO: program.methods.resumePlan()
-    //   .accounts({ owner, plan })
-    //   .signers([owner])
-    //   .rpc();
-    // const plan = await program.account.plan.fetch(planPda);
-    // expect(plan.lastHeartbeat.toNumber()).to.be.at.least(simulatedResume - 5);
+      const ownerBefore = Number(
+        await getBankrunContext().banksClient.getBalance(ctx.owner.publicKey),
+      );
 
-    expect(simulatedResume).to.be.greaterThan(beforePause);
+      await (program.methods as any)
+        .closePlan()
+        .accounts({
+          owner: ctx.owner.publicKey,
+          plan: fixture.planPda,
+          guardianSet: fixture.guardianSetPda,
+          solVault: fixture.solVaultPda,
+        })
+        .signers([ctx.owner])
+        .rpc();
+
+      // Plan account closed
+      await expectAccountClosed(provider.connection, fixture.planPda);
+
+      // Guardian set account closed
+      await expectAccountClosed(provider.connection, fixture.guardianSetPda);
+
+      // Owner got rent back
+      const ownerAfter = Number(
+        await getBankrunContext().banksClient.getBalance(ctx.owner.publicKey),
+      );
+      expect(ownerAfter).to.be.greaterThan(ownerBefore);
+    });
+
+    it('rejects closing Active plan', async () => {
+      const ctx = createTestContext();
+      await fundContext(provider, ctx);
+      const fixture = await createPlanFixture({ program, provider, ctx });
+
+      await depositSolFixture({
+        program, ctx, fixture,
+        amountLamports: new anchor.BN(LAMPORTS_PER_SOL),
+      });
+
+      await expectAnchorError(
+        (program.methods as any)
+          .closePlan()
+          .accounts({
+            owner: ctx.owner.publicKey,
+            plan: fixture.planPda,
+            guardianSet: fixture.guardianSetPda,
+            solVault: fixture.solVaultPda,
+          })
+          .signers([ctx.owner])
+          .rpc(),
+        'InvalidPlanState',
+      );
+    });
+
+    it('rejects non-owner close', async () => {
+      const ctx = createTestContext();
+      await fundContext(provider, ctx);
+      const fixture = await createPlanFixture({ program, provider, ctx });
+
+      const impostor = Keypair.generate();
+      await fundSigner(provider, impostor.publicKey, 2);
+
+      await expectAnchorError(
+        (program.methods as any)
+          .closePlan()
+          .accounts({
+            owner: impostor.publicKey,
+            plan: fixture.planPda,
+            guardianSet: fixture.guardianSetPda,
+            solVault: fixture.solVaultPda,
+          })
+          .signers([impostor])
+          .rpc(),
+        'NotOwner',
+      );
+    });
   });
 
-  it('should reject activate from non-owner', async () => {
-    const impostor = Keypair.generate();
+  // =========================================================================
+  // E2E: full lifecycle
+  // =========================================================================
+  describe('end-to-end', () => {
+    it('Draft → Active → Pause → Resume → ClaimPending → Claimed', async () => {
+      const ctx = createTestContext();
+      await fundContext(provider, ctx);
 
-    // TODO: Expect unauthorized error
-    // await expect(program.methods.activatePlan()
-    //   .accounts({ owner: impostor.publicKey, plan: planPda })
-    //   .signers([impostor])
-    //   .rpc()
-    // ).to.be.rejected;
+      // 1. Create (Draft)
+      const fixture = await createPlanFixture({
+        program, provider, ctx,
+        guardianQuorum: 0, // No guardians needed for quick finalize
+      });
+      let plan = await fetchPlan(program, fixture.planPda);
+      expect(Object.keys(plan.state)[0]).to.equal('draft');
 
-    expect(impostor.publicKey).to.not.be.null;
-  });
+      // 2. Deposit → Active
+      await depositSolFixture({
+        program, ctx, fixture,
+        amountLamports: new anchor.BN(LAMPORTS_PER_SOL),
+      });
+      plan = await fetchPlan(program, fixture.planPda);
+      expect(Object.keys(plan.state)[0]).to.equal('active');
 
-  it('should reject terminal state transitions', () => {
-    const terminalStates = ['Claimed', 'Cancelled'];
-    for (const state of terminalStates) {
-      // Cannot transition from Claimed or Cancelled to anything
-      const allowedTargets: string[] = [];
-      expect(allowedTargets).to.be.empty;
-    }
-  });
+      // 3. Pause
+      await (program.methods as any)
+        .pausePlan()
+        .accounts({ owner: ctx.owner.publicKey, plan: fixture.planPda })
+        .signers([ctx.owner])
+        .rpc();
+      plan = await fetchPlan(program, fixture.planPda);
+      expect(Object.keys(plan.state)[0]).to.equal('paused');
 
-  it('should prevent backward transitions Active → Draft', () => {
-    const fromActive = ['Paused', 'ClaimPending'];
-    expect(fromActive).to.not.include('Draft');
+      // 4. Resume → Active
+      await (program.methods as any)
+        .resumePlan()
+        .accounts({ owner: ctx.owner.publicKey, plan: fixture.planPda })
+        .signers([ctx.owner])
+        .rpc();
+      plan = await fetchPlan(program, fixture.planPda);
+      expect(Object.keys(plan.state)[0]).to.equal('active');
+
+      // 5. Warp → start claim → ClaimPending
+      await warpPastInactivityWindow({ provider, program, planPda: fixture.planPda });
+
+      await (program.methods as any)
+        .startClaim()
+        .accounts({
+          claimant: ctx.beneficiary.publicKey,
+          plan: fixture.planPda,
+          claim: fixture.claimPda,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([ctx.beneficiary])
+        .rpc();
+      plan = await fetchPlan(program, fixture.planPda);
+      expect(Object.keys(plan.state)[0]).to.equal('claimPending');
+
+      // 6. Warp past grace → finalize → Claimed (no guardians, pending path)
+      await warpPastGraceDeadline({
+        provider, program,
+        claimPda: fixture.claimPda,
+        marginSeconds: 1,
+      });
+
+      await (program.methods as any)
+        .finalizeClaim()
+        .accounts({
+          claimant: ctx.beneficiary.publicKey,
+          plan: fixture.planPda,
+          guardianSet: fixture.guardianSetPda,
+          claim: fixture.claimPda,
+          solVault: fixture.solVaultPda,
+          vaultAuthority: fixture.vaultAuthorityPda,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([ctx.beneficiary])
+        .rpc();
+      plan = await fetchPlan(program, fixture.planPda);
+      expect(Object.keys(plan.state)[0]).to.equal('claimed');
+      expect(plan.protectedLamports.toNumber()).to.equal(0);
+
+      // Vault drained
+      const vault = Number(
+        await getBankrunContext().banksClient.getBalance(fixture.solVaultPda),
+      );
+      expect(vault).to.equal(0);
+    });
   });
 });

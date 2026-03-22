@@ -1,4 +1,5 @@
 use anchor_lang::prelude::*;
+use anchor_lang::system_program;
 use crate::state::*;
 use crate::error::LifelineError;
 
@@ -64,11 +65,26 @@ pub fn handler(ctx: Context<FinalizeClaim>) -> Result<()> {
 
     require!(can_finalize, LifelineError::QuorumNotMet);
 
-    // Transfer all vault lamports to claimant
+    // Transfer all vault lamports to claimant via CPI with PDA signing.
+    // The sol_vault is system-owned (funded via system_program::transfer in deposit),
+    // so we must use invoke_signed with the vault PDA seeds.
     let vault_lamports = ctx.accounts.sol_vault.lamports();
     if vault_lamports > 0 {
-        **ctx.accounts.sol_vault.try_borrow_mut_lamports()? -= vault_lamports;
-        **ctx.accounts.claimant.try_borrow_mut_lamports()? += vault_lamports;
+        let plan_key = ctx.accounts.plan.key();
+        let vault_bump = ctx.bumps.sol_vault;
+        let vault_seeds: &[&[u8]] = &[b"sol_vault", plan_key.as_ref(), &[vault_bump]];
+
+        system_program::transfer(
+            CpiContext::new_with_signer(
+                ctx.accounts.system_program.to_account_info(),
+                system_program::Transfer {
+                    from: ctx.accounts.sol_vault.to_account_info(),
+                    to: ctx.accounts.claimant.to_account_info(),
+                },
+                &[vault_seeds],
+            ),
+            vault_lamports,
+        )?;
     }
 
     // Update plan state

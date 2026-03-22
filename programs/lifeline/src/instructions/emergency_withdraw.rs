@@ -1,4 +1,5 @@
 use anchor_lang::prelude::*;
+use anchor_lang::system_program;
 use crate::state::*;
 use crate::error::LifelineError;
 
@@ -34,21 +35,37 @@ pub struct EmergencyWithdraw<'info> {
 
 /// Owner withdraws from the emergency bucket without triggering claim flow.
 pub fn handler(ctx: Context<EmergencyWithdraw>, amount: u64) -> Result<()> {
-    let plan = &mut ctx.accounts.plan;
-
+    // Validate against plan accounting (read-only checks first)
     require!(
-        amount <= plan.emergency_bucket_lamports,
+        amount <= ctx.accounts.plan.emergency_bucket_lamports,
         LifelineError::EmergencyBucketExceeded
     );
 
-    // Transfer from vault to owner
+    // Verify vault has enough lamports
     let vault_lamports = ctx.accounts.sol_vault.lamports();
     require!(amount <= vault_lamports, LifelineError::EmergencyBucketExceeded);
 
-    **ctx.accounts.sol_vault.try_borrow_mut_lamports()? -= amount;
-    **ctx.accounts.owner.try_borrow_mut_lamports()? += amount;
+    // Transfer from vault to owner via CPI with PDA signing.
+    // The sol_vault is system-owned (funded via system_program::transfer in deposit),
+    // so we must use invoke_signed with the vault PDA seeds.
+    let plan_key = ctx.accounts.plan.key();
+    let vault_bump = ctx.bumps.sol_vault;
+    let vault_seeds: &[&[u8]] = &[b"sol_vault", plan_key.as_ref(), &[vault_bump]];
 
-    // Update accounting
+    system_program::transfer(
+        CpiContext::new_with_signer(
+            ctx.accounts.system_program.to_account_info(),
+            system_program::Transfer {
+                from: ctx.accounts.sol_vault.to_account_info(),
+                to: ctx.accounts.owner.to_account_info(),
+            },
+            &[vault_seeds],
+        ),
+        amount,
+    )?;
+
+    // Update accounting (mutable borrow after CPI)
+    let plan = &mut ctx.accounts.plan;
     plan.emergency_bucket_lamports -= amount;
     plan.protected_lamports -= amount;
     plan.updated_at = Clock::get()?.unix_timestamp;

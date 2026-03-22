@@ -7,12 +7,19 @@ skip-lint = false
 [programs.devnet]
 lifeline = "5FEoFcJ2QK7T8SFDX7jKtCfSKvfGhE8QDRLVH2xSWvaP"
 
+[programs.localnet]
+lifeline = "5FEoFcJ2QK7T8SFDX7jKtCfSKvfGhE8QDRLVH2xSWvaP"
+
 [registry]
 url = "https://api.apr.dev"
 
 [provider]
-cluster = "devnet"
+# localnet is the default — bankrun tests run in-process and don't need a validator.
+# Use devnet only for manual deploy and smoke testing:
+#   solana config set --url devnet
+#   anchor deploy
+cluster = "localnet"
 wallet = "~/.config/solana/id.json"
 
 [scripts]
-test = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts"
+test = "pnpm exec ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts"
