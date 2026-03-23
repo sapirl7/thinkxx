@@ -4,6 +4,7 @@ use crate::error::LifelineError;
 
 #[derive(Accounts)]
 pub struct CancelClaim<'info> {
+    #[account(mut)]
     pub owner: Signer<'info>,
 
     #[account(

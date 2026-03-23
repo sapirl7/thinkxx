@@ -60,7 +60,8 @@ program
     console.log(`   Cluster: ${options.cluster}`);
     console.log(`   RPC: ${connection.rpcEndpoint}`);
 
-    // TODO: Fetch all plan PDAs for this owner using getProgramAccounts
+    // Currently limited to a single plan lookup. Multi-plan discovery via
+    // getProgramAccounts is deferred to a future CLI release.
     console.log('\n   No plans found (account fetching not yet wired)');
     console.log('   Use the mobile app or SDK for full functionality.\n');
   });

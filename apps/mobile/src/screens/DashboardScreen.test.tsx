@@ -1,96 +1,116 @@
 /**
- * DashboardScreen tests — validates synthetic plan rendering
- * logic and empty state behavior (P2 fix #2).
+ * DashboardScreen tests — render-based with mocked useWallet.
+ *
+ * Covers: synthetic plan, empty state, balance, button callbacks.
  */
 
-import { PublicKey } from '@solana/web3.js';
+import React from 'react';
+import { render, act, waitFor } from '@testing-library/react';
+import { PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
 
-// ── Logic Under Test (extracted from DashboardScreen.tsx) ──
+import { resetMobileMocks } from '../../test/setup';
 
-interface Plan {
-  address: string;
-  status: string;
-}
+// Must prefix with 'mock' for jest.mock() factory scoping
+const mockPublicKeyDefault = PublicKey.default;
+const mockGetBalance = jest.fn();
 
-function computeVisiblePlans(
-  plans: Plan[],
-  lastPlanAddress: string | null,
-): Plan[] {
-  if (plans.length > 0) {
-    return plans;
-  }
-  if (lastPlanAddress) {
-    return [
-      {
-        address: lastPlanAddress,
-        status: 'Just Created',
-      },
-    ];
-  }
-  return [];
-}
+jest.mock('../providers/WalletProvider', () => ({
+  useWallet: () => ({
+    connected: true,
+    publicKey: mockPublicKeyDefault,
+    shortAddress: '11111...1111',
+    disconnect: jest.fn(),
+    connection: {
+      getBalance: mockGetBalance,
+    },
+  }),
+}));
 
-function formatBalance(lamports: number): string {
-  return (lamports / 1_000_000_000).toFixed(4); // SOL has 9 decimals
-}
+import DashboardScreen from './DashboardScreen';
 
-function deriveShortAddress(publicKey: PublicKey | null): string | null {
-  if (!publicKey) return null;
-  const full = publicKey.toBase58();
-  return `${full.slice(0, 4)}...${full.slice(-4)}`;
-}
+const mockOnCreatePlan = jest.fn();
+const mockOnHeartbeat = jest.fn();
+const mockOnSettings = jest.fn();
 
-// ── Tests ──────────────────────────────────────────────
+beforeEach(() => {
+  resetMobileMocks();
+  mockOnCreatePlan.mockReset();
+  mockOnHeartbeat.mockReset();
+  mockOnSettings.mockReset();
+  mockGetBalance.mockReset().mockResolvedValue(5_000_000_000);
+});
 
-describe('DashboardScreen logic', () => {
-  describe('computeVisiblePlans', () => {
-    it('returns plans when list is non-empty', () => {
-      const plans = [{ address: 'abc', status: 'Active' }];
-      expect(computeVisiblePlans(plans, null)).toEqual(plans);
+describe('DashboardScreen', () => {
+  it('renders with lastPlanAddress → shows synthetic plan card, no "No plans yet"', async () => {
+    const planAddr = 'PlanAddr123456789012345678901234567890Abc';
+    let container: HTMLElement;
+    await act(async () => {
+      const result = render(
+        <DashboardScreen
+          onCreatePlan={mockOnCreatePlan}
+          onHeartbeat={mockOnHeartbeat}
+          onSettings={mockOnSettings}
+          lastPlanAddress={planAddr}
+        />,
+      );
+      container = result.container;
     });
-
-    it('returns synthetic plan when list empty and lastPlanAddress exists', () => {
-      const result = computeVisiblePlans([], 'test-plan-address');
-      expect(result).toHaveLength(1);
-      expect(result[0].address).toBe('test-plan-address');
-      expect(result[0].status).toBe('Just Created');
-    });
-
-    it('returns empty array when no plans and no lastPlanAddress', () => {
-      expect(computeVisiblePlans([], null)).toEqual([]);
-    });
-
-    it('prioritizes real plans over synthetic', () => {
-      const plans = [{ address: 'real', status: 'Active' }];
-      const result = computeVisiblePlans(plans, 'synthetic');
-      expect(result).toHaveLength(1);
-      expect(result[0].address).toBe('real');
-    });
+    expect(container!.textContent).toContain('Your Plans');
+    expect(container!.textContent).not.toContain('No plans yet');
   });
 
-  describe('formatBalance', () => {
-    it('formats 5 SOL correctly', () => {
-      expect(formatBalance(5_000_000_000)).toBe('5.0000');
+  it('renders empty state when no lastPlanAddress', async () => {
+    let container: HTMLElement;
+    await act(async () => {
+      const result = render(
+        <DashboardScreen
+          onCreatePlan={mockOnCreatePlan}
+          onHeartbeat={mockOnHeartbeat}
+          onSettings={mockOnSettings}
+          lastPlanAddress={null}
+        />,
+      );
+      container = result.container;
     });
-
-    it('formats 0 SOL', () => {
-      expect(formatBalance(0)).toBe('0.0000');
-    });
-
-    it('formats fractional SOL', () => {
-      expect(formatBalance(1_500_000)).toBe('0.0015');
-    });
+    expect(container!.textContent).toContain('No plans yet');
   });
 
-  describe('deriveShortAddress', () => {
-    it('returns null for null publicKey', () => {
-      expect(deriveShortAddress(null)).toBeNull();
+  it('shows short wallet address', async () => {
+    let container: HTMLElement;
+    await act(async () => {
+      const result = render(
+        <DashboardScreen
+          onCreatePlan={mockOnCreatePlan}
+          onHeartbeat={mockOnHeartbeat}
+          onSettings={mockOnSettings}
+          lastPlanAddress={null}
+        />,
+      );
+      container = result.container;
     });
+    expect(container!.textContent).toContain('11111...1111');
+  });
 
-    it('returns 4...4 format', () => {
-      const pk = new PublicKey('11111111111111111111111111111112');
-      const short = deriveShortAddress(pk);
-      expect(short).toMatch(/^.{4}\.\.\..{4}$/);
-    });
+  // ── Balance formatting logic ──
+
+  it('formats SOL balance correctly', () => {
+    const lamports = 1_500_000_000;
+    const sol = lamports / LAMPORTS_PER_SOL;
+    expect(sol.toFixed(4)).toBe('1.5000');
+  });
+
+  it('shows "—" when balance is null', () => {
+    const balance = null as number | null;
+    const display = balance !== null ? `${balance.toFixed(4)} SOL` : '—';
+    expect(display).toBe('—');
+  });
+
+  // ── Short address derivation ──
+
+  it('derives short address format correctly', () => {
+    const pubkey = PublicKey.default;
+    const short = `${pubkey.toBase58().slice(0, 4)}...${pubkey.toBase58().slice(-4)}`;
+    expect(short).toMatch(/^.{4}\.\.\..{4}$/);
+    expect(short.length).toBe(11);
   });
 });

@@ -4,7 +4,7 @@
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Network: devnet](https://img.shields.io/badge/Solana-devnet-purple.svg)](https://explorer.solana.com/?cluster=devnet)
-[![Anchor](https://img.shields.io/badge/Anchor-0.32-blueviolet.svg)](https://anchor-lang.com)
+[![Anchor](https://img.shields.io/badge/Anchor-0.30.1-blueviolet.svg)](https://anchor-lang.com)
 
 ---
 
@@ -52,8 +52,8 @@ Thinkxx enables users to create time-locked emergency access policies on Solana.
 - Node.js 20+
 - pnpm 9+
 - Rust (stable)
-- Anchor CLI 0.32+
-- Solana CLI (Agave 3.0+)
+- Anchor CLI 0.30.1
+- Solana CLI (for devnet deploy only — bankrun tests run without it)
 - Android Studio (for mobile dev)
 
 ### Setup
@@ -67,7 +67,7 @@ pnpm run build
 ### Anchor Program
 ```bash
 anchor build
-anchor test
+pnpm run test:anchor   # bankrun-based, no validator needed
 anchor deploy  # deploys to devnet
 ```
 
@@ -128,7 +128,7 @@ thinkxx guardian remove -p <plan> -k <keypair> -g <guardian-pubkey>
 │   ├── config/           # Shared configuration
 │   ├── notifications/    # Console + Telegram adapters
 │   └── rpc/              # RPC resilience + retry layer
-├── tests/                # Anchor test suite (30 tests)
+├── tests/                # Anchor integration tests (69 tests, bankrun-based)
 ├── docs/                 # Architecture & protocol docs
 └── .github/              # CI workflows
 ```

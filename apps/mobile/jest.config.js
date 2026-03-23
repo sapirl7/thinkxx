@@ -1,7 +1,7 @@
 /** @type {import('jest').Config} */
 module.exports = {
-  // Do NOT use "react-native" preset with jest@30 — RN setup.js uses ESM
-  // Instead configure transforms manually
+  // Use jsdom for renderHook / render support
+  testEnvironment: 'jsdom',
   transform: {
     '^.+\\.(ts|tsx)$': ['babel-jest', {
       presets: [
@@ -29,6 +29,6 @@ module.exports = {
     '^@thinkxx/rpc$': '<rootDir>/../../packages/rpc/src/index.ts',
     '^@thinkxx/notifications$': '<rootDir>/../../packages/notifications/src/index.ts',
   },
-  setupFiles: ['<rootDir>/jest.setup.js'],
-  testEnvironment: 'node',
+  // polyfills must load FIRST (TextEncoder etc), then mock-kit
+  setupFiles: ['<rootDir>/test/polyfills.js', '<rootDir>/test/setup.ts'],
 };

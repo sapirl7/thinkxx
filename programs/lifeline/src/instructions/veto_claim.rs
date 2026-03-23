@@ -4,6 +4,7 @@ use crate::error::LifelineError;
 
 #[derive(Accounts)]
 pub struct VetoClaim<'info> {
+    #[account(mut)]
     pub guardian: Signer<'info>,
 
     #[account(
