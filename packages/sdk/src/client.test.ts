@@ -5,7 +5,7 @@
 import { describe, it, expect } from 'vitest';
 import { PublicKey, SystemProgram, Connection } from '@solana/web3.js';
 import { ThinkxxClient, PlanMode } from './client';
-import { derivePlanPda, deriveGuardianSetPda, deriveSolVaultPda, deriveVaultAuthorityPda, deriveClaimPda } from './pda';
+import { derivePlanPda, deriveGuardianSetPda, deriveSolVaultPda, deriveClaimPda } from './pda';
 import { PROGRAM_ID } from '@thinkxx/config';
 
 const conn = new Connection('https://api.devnet.solana.com', 'confirmed');
