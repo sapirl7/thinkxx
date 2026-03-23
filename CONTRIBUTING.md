@@ -1,6 +1,6 @@
 # Contributing to Thinkxx
 
-Thank you for your interest in contributing to Thinkxx! This project builds a production-grade Solana Mobile dApp for emergency access and inheritance planning.
+Thank you for your interest in contributing to Thinkxx! This project builds a devnet-stage Solana Mobile dApp for emergency access and inheritance planning.
 
 ## Getting Started
 
@@ -15,7 +15,7 @@ Thank you for your interest in contributing to Thinkxx! This project builds a pr
 - Node.js 20+
 - pnpm 9+
 - Rust (latest stable)
-- Anchor CLI 0.32+
+- Anchor CLI 0.30.1
 - Solana CLI (Agave 3.0+)
 - Android Studio (for mobile development)
 - JDK 21+

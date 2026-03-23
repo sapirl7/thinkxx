@@ -29,12 +29,12 @@ The Thinkxx codebase demonstrates **strong security posture** for a devnet-stage
 
 ### 🟡 Medium Findings
 
-#### M-1: `finalize_claim` — Missing vault authority signature
+#### M-1: `finalize_claim` — Missing vault authority signature ✅ RESOLVED
 
 **File**: `instructions/finalize_claim.rs:68-72`
-**Risk**: The vault-to-claimant transfer bypasses the `vault_authority` PDA signature pattern, using direct lamport manipulation instead.
+**Risk**: The vault-to-claimant transfer bypassed the `vault_authority` PDA signature pattern, using direct lamport manipulation instead.
 **Impact**: Works correctly in practice because PDA ownership is validated via seeds constraint, but inconsistent with standard CPI transfer patterns.
-**Recommendation**: Consider using a CPI system_instruction::transfer with vault_authority as signer for consistency and auditability.
+**Resolution**: Fixed in PR #1 — replaced direct lamport manipulation with `invoke_signed` CPI transfer using vault PDA seeds.
 
 #### M-2: `start_claim` — Claim PDA replay after close
 
@@ -43,12 +43,12 @@ The Thinkxx codebase demonstrates **strong security posture** for a devnet-stage
 **Impact**: This is intentional for protocol design (allows re-claims), but should be explicitly documented as expected behavior.
 **Recommendation**: Document in PROTOCOL_SPEC.md that claim PDA reuse is by design.
 
-#### M-3: `emergency_withdraw` — No rate limiting
+#### M-3: `emergency_withdraw` — No rate limiting (CPI fix applied)
 
 **File**: `instructions/emergency_withdraw.rs:36-57`
 **Risk**: Owner can drain the entire emergency bucket in a single transaction.
 **Impact**: By design (owner has full control), but a compromised wallet key could drain emergency funds instantly.
-**Recommendation**: Consider adding optional per-transaction limits or cooldown for emergency withdrawals.
+**Resolution**: CPI transfer fix applied in PR #1 (same as M-1). Rate-limiting remains a design consideration for future phases.
 
 ### 🔵 Informational
 
@@ -148,25 +148,25 @@ The sponsor keypair is held in `SponsoredTxConfig.feePayer`. This is expected fo
 
 ## Summary of Findings
 
-| ID | Severity | Component | Description |
-|----|----------|-----------|-------------|
-| M-1 | 🟡 Medium | finalize_claim | Direct lamport manipulation vs CPI transfer |
-| M-2 | 🟡 Medium | start_claim | Claim PDA reuse after finalization |
-| M-3 | 🟡 Medium | emergency_withdraw | No per-tx rate limiting |
-| I-1 | 🔵 Info | Anchor | Checked math confirmed |
-| I-2 | 🔵 Info | Anchor | Clock slot tolerance (~1s) |
-| I-3 | 🔵 Info | SDK | Sponsor keypair in memory |
-| I-4 | 🔵 Info | CLI | Keypair from file (standard pattern) |
-| I-5 | 🔵 Info | CLI | Base58 validation via PublicKey constructor |
-| I-6 | 🔵 Info | Notifications | Bot token via config (not hardcoded) |
-| I-7 | 🔵 Info | Notifications | Markdown escaping coverage |
+| ID | Severity | Component | Description | Status |
+|----|----------|-----------|-------------|--------|
+| M-1 | 🟡 Medium | finalize_claim | Direct lamport manipulation vs CPI transfer | ✅ Resolved in PR #1 |
+| M-2 | 🟡 Medium | start_claim | Claim PDA reuse after finalization | Open (by design) |
+| M-3 | 🟡 Medium | emergency_withdraw | No per-tx rate limiting | CPI fixed in PR #1; rate-limiting deferred |
+| I-1 | 🔵 Info | Anchor | Checked math confirmed | — |
+| I-2 | 🔵 Info | Anchor | Clock slot tolerance (~1s) | — |
+| I-3 | 🔵 Info | SDK | Sponsor keypair in memory | — |
+| I-4 | 🔵 Info | CLI | Keypair from file (standard pattern) | — |
+| I-5 | 🔵 Info | CLI | Base58 validation via PublicKey constructor | — |
+| I-6 | 🔵 Info | Notifications | Bot token via config (not hardcoded) | — |
+| I-7 | 🔵 Info | Notifications | Markdown escaping coverage | — |
 
 ---
 
 ## Recommendations
 
 1. **Pre-mainnet**: Engage a professional auditor (e.g., OtterSec, Neodyme) for the Anchor program
-2. **M-1 fix**: Refactor vault transfers to use CPI with vault_authority PDA signing
+2. ~~**M-1 fix**: Refactor vault transfers to use CPI with vault_authority PDA signing~~ ✅ Done in PR #1
 3. **M-2 doc**: Add explicit claim lifecycle documentation to PROTOCOL_SPEC.md
 4. **M-3 consider**: Optional emergency withdrawal cooldown (configurable per-plan)
 5. **Snyk**: Resolve authentication to enable continuous SAST scanning in CI
