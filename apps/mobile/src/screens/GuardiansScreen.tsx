@@ -1,69 +1,121 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
+  ScrollView,
   TextInput,
-  FlatList,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
-import { COLORS, SPACING, FONT_SIZES, BORDER_RADIUS } from '../theme';
+import { PublicKey, Transaction } from '@solana/web3.js';
+import { ThinkxxClient, fetchGuardianSet } from '@thinkxx/sdk';
+import type { ParsedGuardianSet } from '@thinkxx/sdk';
+import { deriveGuardianSetPda } from '@thinkxx/sdk';
+import { useWallet } from '../providers/WalletProvider';
+import { theme } from '../theme';
 
-interface Guardian {
-  pubkey: string;
-  addedAt: Date;
-}
+const MAX_GUARDIANS = 5;
 
 interface GuardiansScreenProps {
+  planAddress: string;
   onBack: () => void;
 }
 
-export default function GuardiansScreen({ onBack }: GuardiansScreenProps): React.JSX.Element {
-  const [guardians, setGuardians] = useState<Guardian[]>([]);
-  const [newGuardianKey, setNewGuardianKey] = useState('');
-  const [quorum, setQuorum] = useState(1);
+export default function GuardiansScreen({
+  planAddress,
+  onBack,
+}: GuardiansScreenProps): React.JSX.Element {
+  const { connection, publicKey, signAndSendTransaction } = useWallet();
+  const [guardianSet, setGuardianSet] = useState<ParsedGuardianSet | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [acting, setActing] = useState(false);
+  const [newGuardian, setNewGuardian] = useState('');
+  const [showAdd, setShowAdd] = useState(false);
 
-  const handleAddGuardian = (): void => {
-    if (!newGuardianKey.trim()) {
-      Alert.alert('Error', 'Enter a guardian public key');
+  const planPda = new PublicKey(planAddress);
+  const client = new ThinkxxClient(connection);
+
+  const fetchData = useCallback(async () => {
+    try {
+      const [gsPda] = deriveGuardianSetPda(planPda);
+      const gs = await fetchGuardianSet(connection, gsPda);
+      setGuardianSet(gs);
+    } catch (err) {
+      Alert.alert('Error', err instanceof Error ? err.message : 'Failed to fetch guardians');
+    } finally {
+      setLoading(false);
+    }
+  }, [connection, planAddress]);
+
+  useEffect(() => {
+    setLoading(true);
+    fetchData();
+  }, [fetchData]);
+
+  const handleAddGuardian = useCallback(async () => {
+    if (!publicKey || !newGuardian.trim()) return;
+
+    let guardianPubkey: PublicKey;
+    try {
+      guardianPubkey = new PublicKey(newGuardian.trim());
+    } catch {
+      Alert.alert('Invalid Address', 'Please enter a valid Solana address.');
       return;
     }
-    if (guardians.length >= 5) {
-      Alert.alert('Limit Reached', 'Maximum 5 guardians per plan');
-      return;
-    }
-    if (guardians.some(g => g.pubkey === newGuardianKey.trim())) {
-      Alert.alert('Duplicate', 'This guardian is already added');
+
+    if (guardianSet?.guardians.some((g: PublicKey) => g.equals(guardianPubkey))) {
+      Alert.alert('Duplicate', 'This guardian is already added.');
       return;
     }
 
-    setGuardians(prev => [...prev, {
-      pubkey: newGuardianKey.trim(),
-      addedAt: new Date(),
-    }]);
-    setNewGuardianKey('');
-  };
+    if ((guardianSet?.guardians.length ?? 0) >= MAX_GUARDIANS) {
+      Alert.alert('Max Reached', `Maximum ${MAX_GUARDIANS} guardians allowed.`);
+      return;
+    }
 
-  const handleRemoveGuardian = (pubkey: string): void => {
-    Alert.alert(
-      'Remove Guardian',
-      `Remove ${pubkey.slice(0, 8)}...?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Remove',
-          style: 'destructive',
-          onPress: () => {
-            setGuardians(prev => prev.filter(g => g.pubkey !== pubkey));
-            if (quorum > guardians.length - 1) {
-              setQuorum(Math.max(1, guardians.length - 1));
-            }
-          },
+    setActing(true);
+    try {
+      const [gsPda] = deriveGuardianSetPda(planPda);
+      const ix = client.buildAddGuardian(publicKey, planPda, gsPda, guardianPubkey);
+      await signAndSendTransaction(new Transaction().add(ix));
+      Alert.alert('Added', 'Guardian added successfully.');
+      setNewGuardian('');
+      setShowAdd(false);
+      await fetchData();
+    } catch (err) {
+      Alert.alert('Error', err instanceof Error ? err.message : 'Failed to add guardian');
+    } finally {
+      setActing(false);
+    }
+  }, [publicKey, newGuardian, guardianSet, connection, signAndSendTransaction, fetchData]);
+
+  const handleRemoveGuardian = useCallback(async (guardian: PublicKey) => {
+    if (!publicKey) return;
+
+    Alert.alert('Remove Guardian', `Remove ${guardian.toBase58().slice(0, 8)}...?`, [
+      { text: 'Cancel' },
+      {
+        text: 'Remove',
+        style: 'destructive',
+        onPress: async () => {
+          setActing(true);
+          try {
+            const [gsPda] = deriveGuardianSetPda(planPda);
+            const ix = client.buildRemoveGuardian(publicKey, planPda, gsPda, guardian);
+            await signAndSendTransaction(new Transaction().add(ix));
+            Alert.alert('Removed', 'Guardian removed.');
+            await fetchData();
+          } catch (err) {
+            Alert.alert('Error', err instanceof Error ? err.message : 'Failed to remove guardian');
+          } finally {
+            setActing(false);
+          }
         },
-      ],
-    );
-  };
+      },
+    ]);
+  }, [publicKey, connection, signAndSendTransaction, fetchData]);
 
   return (
     <View style={styles.container}>
@@ -76,163 +128,198 @@ export default function GuardiansScreen({ onBack }: GuardiansScreenProps): React
         <View style={styles.backBtn} />
       </View>
 
-      {/* Info Card */}
-      <View style={styles.infoCard}>
-        <Text style={styles.infoIcon}>🛡️</Text>
-        <Text style={styles.infoText}>
-          Guardians can approve or veto beneficiary claims.{'\n'}
-          A single veto cancels the entire claim immediately.
-        </Text>
-      </View>
-
-      {/* Quorum Setting */}
-      <View style={styles.quorumCard}>
-        <Text style={styles.quorumLabel}>Approval Quorum</Text>
-        <View style={styles.quorumControls}>
-          <TouchableOpacity
-            style={styles.quorumBtn}
-            onPress={() => setQuorum(Math.max(1, quorum - 1))}
-          >
-            <Text style={styles.quorumBtnText}>−</Text>
-          </TouchableOpacity>
-          <Text style={styles.quorumValue}>{quorum}</Text>
-          <TouchableOpacity
-            style={styles.quorumBtn}
-            onPress={() => setQuorum(Math.min(guardians.length || 1, quorum + 1))}
-          >
-            <Text style={styles.quorumBtnText}>+</Text>
-          </TouchableOpacity>
-        </View>
-        <Text style={styles.quorumHint}>
-          {quorum} of {guardians.length || 0} guardians must approve a claim
-        </Text>
-      </View>
-
-      {/* Add Guardian */}
-      <View style={styles.addSection}>
-        <TextInput
-          style={styles.input}
-          placeholder="Guardian public key..."
-          placeholderTextColor={COLORS.textMuted}
-          value={newGuardianKey}
-          onChangeText={setNewGuardianKey}
-          autoCapitalize="none"
-          autoCorrect={false}
-        />
-        <TouchableOpacity style={styles.addBtn} onPress={handleAddGuardian}>
-          <Text style={styles.addBtnText}>Add</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Guardian List */}
-      <FlatList
-        data={guardians}
-        keyExtractor={item => item.pubkey}
-        renderItem={({ item }) => (
-          <View style={styles.guardianRow}>
-            <View style={styles.guardianInfo}>
-              <Text style={styles.guardianKey}>
-                {item.pubkey.slice(0, 4)}...{item.pubkey.slice(-4)}
-              </Text>
-              <Text style={styles.guardianDate}>
-                Added {item.addedAt.toLocaleDateString()}
-              </Text>
-            </View>
-            <TouchableOpacity
-              style={styles.removeBtn}
-              onPress={() => handleRemoveGuardian(item.pubkey)}
-            >
-              <Text style={styles.removeBtnText}>✕</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-        ListEmptyComponent={
-          <View style={styles.emptyState}>
-            <Text style={styles.emptyIcon}>👤</Text>
-            <Text style={styles.emptyText}>No guardians added yet</Text>
-            <Text style={styles.emptyHint}>
-              Without guardians, claims auto-finalize after grace period
+      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+        {/* Quorum Info */}
+        {guardianSet && (
+          <View style={styles.quorumCard}>
+            <Text style={styles.quorumLabel}>Quorum</Text>
+            <Text style={styles.quorumValue}>
+              {guardianSet.quorum} of {guardianSet.guardians.length}
+            </Text>
+            <Text style={styles.quorumDescription}>
+              {guardianSet.quorum} guardian{guardianSet.quorum !== 1 ? 's' : ''} must approve claims
             </Text>
           </View>
-        }
-        contentContainerStyle={styles.listContent}
-      />
+        )}
 
-      {/* Guardian Count */}
-      <View style={styles.footer}>
-        <Text style={styles.footerText}>
-          {guardians.length}/5 guardians • Quorum: {quorum}
-        </Text>
-      </View>
+        {/* Loading State */}
+        {loading && (
+          <View style={styles.loadingState}>
+            <ActivityIndicator color={theme.colors.primary} size="large" />
+            <Text style={styles.loadingText}>Loading guardians...</Text>
+          </View>
+        )}
+
+        {/* Guardian List */}
+        {!loading && guardianSet && (
+          <View style={styles.listSection}>
+            <Text style={styles.sectionTitle}>
+              GUARDIANS ({guardianSet.guardians.length}/{MAX_GUARDIANS})
+            </Text>
+
+            {guardianSet.guardians.length === 0 ? (
+              <View style={styles.emptyState}>
+                <Text style={styles.emptyIcon}>🛡️</Text>
+                <Text style={styles.emptyText}>No guardians added yet</Text>
+              </View>
+            ) : (
+              guardianSet.guardians.map((guardian: PublicKey, idx: number) => (
+                <View key={guardian.toBase58()} style={styles.guardianRow}>
+                  <View style={styles.guardianInfo}>
+                    <View style={styles.guardianAvatar}>
+                      <Text style={styles.avatarText}>{String.fromCodePoint(0x1F6E1)}</Text>
+                    </View>
+                    <View>
+                      <Text style={styles.guardianLabel}>Guardian {idx + 1}</Text>
+                      <Text style={styles.guardianAddress}>{guardian.toBase58()}</Text>
+                    </View>
+                  </View>
+                  <TouchableOpacity
+                    style={styles.removeBtn}
+                    onPress={() => handleRemoveGuardian(guardian)}
+                    disabled={acting}
+                  >
+                    <Text style={styles.removeBtnText}>✕</Text>
+                  </TouchableOpacity>
+                </View>
+              ))
+            )}
+          </View>
+        )}
+
+        {/* Add Guardian */}
+        {!loading && (guardianSet?.guardians.length ?? 0) < MAX_GUARDIANS && (
+          <View style={styles.addSection}>
+            {showAdd ? (
+              <View style={styles.addForm}>
+                <TextInput
+                  style={styles.input}
+                  value={newGuardian}
+                  onChangeText={setNewGuardian}
+                  placeholder="Paste guardian wallet address..."
+                  placeholderTextColor={theme.colors.textMuted}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                />
+                <View style={styles.addActions}>
+                  <TouchableOpacity
+                    style={styles.cancelBtn}
+                    onPress={() => { setShowAdd(false); setNewGuardian(''); }}
+                  >
+                    <Text style={styles.cancelBtnText}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.confirmBtn, acting && styles.confirmBtnDisabled]}
+                    onPress={handleAddGuardian}
+                    disabled={acting || !newGuardian.trim()}
+                  >
+                    {acting ? (
+                      <ActivityIndicator color="#000" size="small" />
+                    ) : (
+                      <Text style={styles.confirmBtnText}>Add Guardian</Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ) : (
+              <TouchableOpacity style={styles.addBtn} onPress={() => setShowAdd(true)}>
+                <Text style={styles.addBtnText}>+ Add Guardian</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
+
+        <View style={{ height: 40 }} />
+      </ScrollView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: COLORS.background },
+  container: { flex: 1, backgroundColor: theme.colors.background },
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: SPACING.lg, paddingTop: SPACING.xl + 20, paddingBottom: SPACING.md,
+    paddingHorizontal: theme.spacing.lg, paddingTop: theme.spacing.xl + 20, paddingBottom: theme.spacing.md,
   },
   backBtn: { width: 60 },
-  backText: { color: COLORS.accent, fontSize: FONT_SIZES.md },
-  title: { color: COLORS.textPrimary, fontSize: FONT_SIZES.xl, fontWeight: '700' },
-  infoCard: {
-    flexDirection: 'row', alignItems: 'flex-start',
-    backgroundColor: COLORS.surface, borderRadius: BORDER_RADIUS.lg,
-    marginHorizontal: SPACING.lg, marginTop: SPACING.sm, padding: SPACING.md,
-  },
-  infoIcon: { fontSize: 24, marginRight: SPACING.sm },
-  infoText: { flex: 1, color: COLORS.textSecondary, fontSize: FONT_SIZES.sm, lineHeight: 20 },
+  backText: { color: theme.colors.primary, fontSize: theme.fontSize.md },
+  title: { color: theme.colors.text, fontSize: theme.fontSize.xl, fontWeight: theme.fontWeight.bold },
+  content: { flex: 1, paddingHorizontal: theme.spacing.lg },
   quorumCard: {
-    backgroundColor: COLORS.surface, borderRadius: BORDER_RADIUS.lg,
-    marginHorizontal: SPACING.lg, marginTop: SPACING.md, padding: SPACING.md,
-    alignItems: 'center',
+    backgroundColor: theme.colors.surface, borderRadius: theme.borderRadius.lg,
+    padding: theme.spacing.lg, alignItems: 'center', marginBottom: theme.spacing.md,
   },
-  quorumLabel: { color: COLORS.textSecondary, fontSize: FONT_SIZES.sm, marginBottom: SPACING.sm },
-  quorumControls: { flexDirection: 'row', alignItems: 'center', gap: SPACING.lg },
-  quorumBtn: {
-    width: 40, height: 40, borderRadius: 20,
-    backgroundColor: COLORS.accent + '30', alignItems: 'center', justifyContent: 'center',
+  quorumLabel: { color: theme.colors.textMuted, fontSize: theme.fontSize.sm },
+  quorumValue: {
+    color: theme.colors.text, fontSize: 32, fontWeight: theme.fontWeight.bold,
+    marginVertical: theme.spacing.xs,
   },
-  quorumBtnText: { color: COLORS.accent, fontSize: FONT_SIZES.xl, fontWeight: '700' },
-  quorumValue: { color: COLORS.textPrimary, fontSize: 32, fontWeight: '700', minWidth: 40, textAlign: 'center' },
-  quorumHint: { color: COLORS.textMuted, fontSize: FONT_SIZES.xs, marginTop: SPACING.sm },
-  addSection: {
-    flexDirection: 'row', marginHorizontal: SPACING.lg,
-    marginTop: SPACING.md, gap: SPACING.sm,
+  quorumDescription: { color: theme.colors.textSecondary, fontSize: theme.fontSize.sm },
+  loadingState: {
+    alignItems: 'center', paddingVertical: theme.spacing.xl, gap: theme.spacing.md,
   },
-  input: {
-    flex: 1, backgroundColor: COLORS.surface, borderRadius: BORDER_RADIUS.md,
-    paddingHorizontal: SPACING.md, paddingVertical: SPACING.sm,
-    color: COLORS.textPrimary, fontSize: FONT_SIZES.sm,
+  loadingText: { color: theme.colors.textSecondary, fontSize: theme.fontSize.sm },
+  listSection: { gap: theme.spacing.sm },
+  sectionTitle: {
+    color: theme.colors.textMuted, fontSize: theme.fontSize.xs,
+    fontWeight: theme.fontWeight.semibold, textTransform: 'uppercase',
+    letterSpacing: 1, marginBottom: theme.spacing.xs,
   },
-  addBtn: {
-    backgroundColor: COLORS.accent, borderRadius: BORDER_RADIUS.md,
-    paddingHorizontal: SPACING.lg, justifyContent: 'center',
+  emptyState: {
+    backgroundColor: theme.colors.surface, borderRadius: theme.borderRadius.lg,
+    padding: theme.spacing.xl, alignItems: 'center', borderWidth: 1,
+    borderColor: theme.colors.border, borderStyle: 'dashed',
   },
-  addBtnText: { color: '#000', fontWeight: '700', fontSize: FONT_SIZES.md },
-  listContent: { paddingHorizontal: SPACING.lg, paddingTop: SPACING.md },
+  emptyIcon: { fontSize: 36, marginBottom: theme.spacing.sm },
+  emptyText: { color: theme.colors.textMuted, fontSize: theme.fontSize.md },
   guardianRow: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    backgroundColor: COLORS.surface, borderRadius: BORDER_RADIUS.md,
-    padding: SPACING.md, marginBottom: SPACING.sm,
+    backgroundColor: theme.colors.surface, borderRadius: theme.borderRadius.md,
+    padding: theme.spacing.md, flexDirection: 'row', alignItems: 'center',
+    justifyContent: 'space-between',
   },
-  guardianInfo: { flex: 1 },
-  guardianKey: { color: COLORS.textPrimary, fontSize: FONT_SIZES.md, fontFamily: 'monospace' },
-  guardianDate: { color: COLORS.textMuted, fontSize: FONT_SIZES.xs, marginTop: 2 },
+  guardianInfo: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing.sm, flex: 1 },
+  guardianAvatar: {
+    width: 36, height: 36, borderRadius: 18,
+    backgroundColor: theme.colors.primary + '15', alignItems: 'center', justifyContent: 'center',
+  },
+  avatarText: { fontSize: 16 },
+  guardianLabel: { color: theme.colors.text, fontSize: theme.fontSize.sm, fontWeight: theme.fontWeight.medium },
+  guardianAddress: {
+    color: theme.colors.textMuted, fontSize: theme.fontSize.xs, fontFamily: 'monospace',
+    maxWidth: 200,
+  },
   removeBtn: {
     width: 32, height: 32, borderRadius: 16,
-    backgroundColor: COLORS.danger + '20', alignItems: 'center', justifyContent: 'center',
+    backgroundColor: theme.colors.danger + '15', alignItems: 'center', justifyContent: 'center',
   },
-  removeBtnText: { color: COLORS.danger, fontSize: 14, fontWeight: '700' },
-  emptyState: { alignItems: 'center', paddingVertical: SPACING.xl * 2 },
-  emptyIcon: { fontSize: 48, marginBottom: SPACING.md },
-  emptyText: { color: COLORS.textSecondary, fontSize: FONT_SIZES.lg, fontWeight: '600' },
-  emptyHint: { color: COLORS.textMuted, fontSize: FONT_SIZES.sm, textAlign: 'center', marginTop: SPACING.sm, paddingHorizontal: SPACING.xl },
-  footer: {
-    paddingVertical: SPACING.md, alignItems: 'center',
-    borderTopWidth: 1, borderTopColor: COLORS.surface,
+  removeBtnText: { color: theme.colors.danger, fontSize: 14 },
+  addSection: { marginTop: theme.spacing.md },
+  addForm: {
+    backgroundColor: theme.colors.surface, borderRadius: theme.borderRadius.lg,
+    padding: theme.spacing.md, gap: theme.spacing.md,
   },
-  footerText: { color: COLORS.textMuted, fontSize: FONT_SIZES.sm },
+  input: {
+    backgroundColor: theme.colors.background, borderRadius: theme.borderRadius.md,
+    paddingHorizontal: theme.spacing.md, paddingVertical: theme.spacing.sm + 4,
+    color: theme.colors.text, fontSize: theme.fontSize.sm, fontFamily: 'monospace',
+    borderWidth: 1, borderColor: theme.colors.border,
+  },
+  addActions: { flexDirection: 'row', gap: theme.spacing.sm },
+  cancelBtn: {
+    flex: 1, borderRadius: theme.borderRadius.md, paddingVertical: theme.spacing.sm + 2,
+    alignItems: 'center', borderWidth: 1, borderColor: theme.colors.border,
+  },
+  cancelBtnText: { color: theme.colors.textSecondary, fontWeight: theme.fontWeight.semibold },
+  confirmBtn: {
+    flex: 1, backgroundColor: theme.colors.accent, borderRadius: theme.borderRadius.md,
+    paddingVertical: theme.spacing.sm + 2, alignItems: 'center',
+  },
+  confirmBtnDisabled: { opacity: 0.5 },
+  confirmBtnText: { color: '#000', fontWeight: theme.fontWeight.bold },
+  addBtn: {
+    backgroundColor: theme.colors.surface, borderRadius: theme.borderRadius.lg,
+    padding: theme.spacing.md, alignItems: 'center',
+    borderWidth: 1, borderColor: theme.colors.primary + '40', borderStyle: 'dashed',
+  },
+  addBtnText: { color: theme.colors.primary, fontSize: theme.fontSize.md, fontWeight: theme.fontWeight.semibold },
 });

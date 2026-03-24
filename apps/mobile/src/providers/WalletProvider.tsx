@@ -30,6 +30,10 @@ interface WalletContextValue extends WalletState {
   disconnect: () => void;
   signAndSendTransaction: (transaction: Transaction) => Promise<string>;
   shortAddress: string | null;
+  /** Best-effort wallet app label derived from wallet_uri_base host */
+  walletLabel: string | null;
+  /** Current RPC endpoint URL */
+  rpcEndpoint: string;
 }
 
 interface WalletSessionState extends WalletState {
@@ -279,6 +283,21 @@ export function WalletProvider({ children }: { children: ReactNode }): React.JSX
     ? `${state.publicKey.toBase58().slice(0, 4)}...${state.publicKey.toBase58().slice(-4)}`
     : null;
 
+  // Derive wallet label from wallet_uri_base, e.g. "phantom" from "https://phantom.app/..."
+  const walletLabel = useMemo(() => {
+    if (!state.walletUriBase) return null;
+    try {
+      const host = new URL(state.walletUriBase).hostname;
+      // Strip common TLD patterns: "phantom.app" → "Phantom"
+      const name = host.split('.')[0] ?? host;
+      return name.charAt(0).toUpperCase() + name.slice(1);
+    } catch {
+      return state.walletUriBase;
+    }
+  }, [state.walletUriBase]);
+
+  const rpcEndpoint = NETWORK_CONFIG[CLUSTER.DEVNET].rpcEndpoint;
+
   const value: WalletContextValue = {
     ...state,
     connection,
@@ -286,6 +305,8 @@ export function WalletProvider({ children }: { children: ReactNode }): React.JSX
     disconnect,
     signAndSendTransaction,
     shortAddress,
+    walletLabel,
+    rpcEndpoint,
   };
 
   return (

@@ -8,10 +8,12 @@ import HeartbeatScreen from './src/screens/HeartbeatScreen';
 import PlanDetailScreen from './src/screens/PlanDetailScreen';
 import GuardiansScreen from './src/screens/GuardiansScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
+import DepositScreen from './src/screens/DepositScreen';
 
 /**
  * Screen-based navigation for the Thinkxx mobile app.
- * 7 screens covering the full protocol UX.
+ * 7 screens covering the full owner-side protocol UX.
+ * Plan address is passed through navigation for PlanDetail, Guardians, Heartbeat, Deposit.
  */
 type Screen =
   | 'dashboard'
@@ -19,22 +21,45 @@ type Screen =
   | 'heartbeat'
   | 'plan_detail'
   | 'guardians'
-  | 'settings';
+  | 'settings'
+  | 'deposit';
 
 function AppNavigator(): React.JSX.Element {
-  const { connected, disconnect, publicKey } = useWallet();
+  const { connected, publicKey } = useWallet();
   const [screen, setScreen] = useState<Screen>('dashboard');
   const [lastPlanAddress, setLastPlanAddress] = useState<string | null>(null);
+  const [selectedPlanAddress, setSelectedPlanAddress] = useState<string | null>(null);
   const walletAddress = publicKey?.toBase58() ?? null;
 
   useEffect(() => {
     setLastPlanAddress(null);
+    setSelectedPlanAddress(null);
     setScreen('dashboard');
   }, [walletAddress]);
 
   if (!connected) {
     return <ConnectScreen />;
   }
+
+  const navigateToPlanDetail = (planAddr: string): void => {
+    setSelectedPlanAddress(planAddr);
+    setScreen('plan_detail');
+  };
+
+  const navigateToGuardians = (planAddr: string): void => {
+    setSelectedPlanAddress(planAddr);
+    setScreen('guardians');
+  };
+
+  const navigateToHeartbeat = (planAddr?: string): void => {
+    if (planAddr) setSelectedPlanAddress(planAddr);
+    setScreen('heartbeat');
+  };
+
+  const navigateToDeposit = (planAddr: string): void => {
+    setSelectedPlanAddress(planAddr);
+    setScreen('deposit');
+  };
 
   switch (screen) {
     case 'create_plan':
@@ -51,35 +76,75 @@ function AppNavigator(): React.JSX.Element {
       return (
         <HeartbeatScreen
           onBack={() => setScreen('dashboard')}
-          initialPlanAddress={lastPlanAddress}
+          initialPlanAddress={selectedPlanAddress ?? lastPlanAddress}
         />
       );
     case 'plan_detail':
-      return (
+      return selectedPlanAddress ? (
         <PlanDetailScreen
+          planAddress={selectedPlanAddress}
           onBack={() => setScreen('dashboard')}
-          onGuardians={() => setScreen('guardians')}
+          onGuardians={navigateToGuardians}
+          onHeartbeat={navigateToHeartbeat}
+          onDeposit={navigateToDeposit}
+        />
+      ) : (
+        // Fallback: shouldn't happen, but go to dashboard
+        <DashboardScreen
+          onCreatePlan={() => setScreen('create_plan')}
+          onHeartbeat={navigateToHeartbeat}
+          onSettings={() => setScreen('settings')}
+          onPlanDetail={navigateToPlanDetail}
+          onDeposit={navigateToDeposit}
+          lastPlanAddress={lastPlanAddress}
         />
       );
     case 'guardians':
-      return (
+      return selectedPlanAddress ? (
         <GuardiansScreen
-          onBack={() => setScreen('plan_detail')}
+          planAddress={selectedPlanAddress}
+          onBack={() => navigateToPlanDetail(selectedPlanAddress)}
+        />
+      ) : (
+        <DashboardScreen
+          onCreatePlan={() => setScreen('create_plan')}
+          onHeartbeat={navigateToHeartbeat}
+          onSettings={() => setScreen('settings')}
+          onPlanDetail={navigateToPlanDetail}
+          onDeposit={navigateToDeposit}
+          lastPlanAddress={lastPlanAddress}
         />
       );
     case 'settings':
       return (
         <SettingsScreen
           onBack={() => setScreen('dashboard')}
-          onDisconnect={disconnect}
+        />
+      );
+    case 'deposit':
+      return selectedPlanAddress ? (
+        <DepositScreen
+          planAddress={selectedPlanAddress}
+          onBack={() => navigateToPlanDetail(selectedPlanAddress)}
+        />
+      ) : (
+        <DashboardScreen
+          onCreatePlan={() => setScreen('create_plan')}
+          onHeartbeat={navigateToHeartbeat}
+          onSettings={() => setScreen('settings')}
+          onPlanDetail={navigateToPlanDetail}
+          onDeposit={navigateToDeposit}
+          lastPlanAddress={lastPlanAddress}
         />
       );
     default:
       return (
         <DashboardScreen
           onCreatePlan={() => setScreen('create_plan')}
-          onHeartbeat={() => setScreen('heartbeat')}
+          onHeartbeat={navigateToHeartbeat}
           onSettings={() => setScreen('settings')}
+          onPlanDetail={navigateToPlanDetail}
+          onDeposit={navigateToDeposit}
           lastPlanAddress={lastPlanAddress}
         />
       );
