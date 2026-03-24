@@ -63,7 +63,7 @@ feat: add guardian approval flow
 fix: handle stale blockhash on retry
 docs: update state machine diagram
 test: add claim timing window tests
-chore: update Anchor to 0.32.x
+chore: bump dependencies
 ```
 
 ## Architecture Decisions

@@ -1,0 +1,6 @@
+# Default owner for everything
+* @sapirl7
+
+# Protected paths — require explicit review
+programs/lifeline/src/ @sapirl7
+.github/workflows/ @sapirl7
