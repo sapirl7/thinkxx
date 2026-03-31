@@ -24,9 +24,11 @@ export const mockWallet = {
  * By default, `transact` invokes its callback with `mockWallet`.
  * Override per test: `mockTransact.mockImplementation(...)`.
  */
-export const mockTransact = jest.fn(async (callback: (wallet: any) => Promise<any>) => {
-  return callback(mockWallet);
-});
+export const mockTransact = jest.fn(
+  async (callback: (wallet: any) => Promise<any>, _options?: unknown) => {
+    return callback(mockWallet);
+  }
+);
 
 // ── Mock Connection ─────────────────────────────────────────────
 export const mockConnection = {
@@ -42,6 +44,9 @@ export const mockConnection = {
 
 // ── Mock Alert ──────────────────────────────────────────────────
 export const mockAlert = jest.fn();
+
+const mockAsyncStorageMemory = new Map<string, string>();
+const mockSecureStorageMemory = new Map<string, string>();
 
 // ── Default wallet authorize response ───────────────────────────
 const defaultPubkey = PublicKey.default;
@@ -78,13 +83,19 @@ export function resetMobileMocks(): void {
   mockConnection.confirmTransaction.mockReset().mockResolvedValue({ value: { err: null } });
 
   mockAlert.mockReset();
+  if (typeof globalThis !== 'undefined' && 'localStorage' in globalThis) {
+    globalThis.localStorage.clear();
+  }
+  mockAsyncStorageMemory.clear();
+  mockSecureStorageMemory.clear();
 }
 
 // ── Register global jest.mock calls ─────────────────────────────
 // These must be at module scope for jest hoisting.
 
 jest.mock('@solana-mobile/mobile-wallet-adapter-protocol-web3js', () => ({
-  transact: (...args: any[]) => mockTransact(...args),
+  transact: (callback: (wallet: any) => Promise<any>, options?: unknown) =>
+    mockTransact(callback, options),
 }));
 
 jest.mock('@solana-mobile/mobile-wallet-adapter-protocol', () => {
@@ -124,6 +135,37 @@ jest.mock('@solana/web3.js', () => {
   };
 });
 
+jest.mock(
+  '@react-native-async-storage/async-storage',
+  () => ({
+    __esModule: true,
+    default: {
+      getItem: jest.fn(async (key: string) => mockAsyncStorageMemory.get(key) ?? null),
+      setItem: jest.fn(async (key: string, value: string) => {
+        mockAsyncStorageMemory.set(key, value);
+      }),
+      removeItem: jest.fn(async (key: string) => {
+        mockAsyncStorageMemory.delete(key);
+      }),
+    },
+  }),
+  { virtual: true }
+);
+
+jest.mock(
+  'expo-secure-store',
+  () => ({
+    getItemAsync: jest.fn(async (key: string) => mockSecureStorageMemory.get(key) ?? null),
+    setItemAsync: jest.fn(async (key: string, value: string) => {
+      mockSecureStorageMemory.set(key, value);
+    }),
+    deleteItemAsync: jest.fn(async (key: string) => {
+      mockSecureStorageMemory.delete(key);
+    }),
+  }),
+  { virtual: true }
+);
+
 jest.mock('react-native', () => {
   const React = require('react');
   // RN props that must NOT be passed to DOM elements
@@ -137,6 +179,7 @@ jest.mock('react-native', () => {
     'numberOfLines','ellipsizeMode','selectable',
     'adjustsFontSizeToFit','minimumFontScale','onLayout',
     'activeOpacity','placeholderTextColor','trackColor','thumbColor',
+    'keyboardType','editable','autoCorrect','autoCapitalize',
   ]);
   const clean = (p: any) => {
     const out: any = {};
@@ -150,6 +193,16 @@ jest.mock('react-native', () => {
   return {
     View: mk('div'),
     Text: mk('span'),
+    Pressable: React.forwardRef((props: any, ref: any) => {
+      const { children, onPress, disabled, style, ...rest } = props;
+      const resolvedStyle = typeof style === 'function' ? style({ pressed: false }) : style;
+      return React.createElement('button', {
+        ...clean({ ...rest, style: resolvedStyle }),
+        ref,
+        onClick: onPress,
+        disabled,
+      }, children);
+    }),
     TouchableOpacity: React.forwardRef((props: any, ref: any) => {
       const { children, onPress, disabled, ...rest } = props;
       return React.createElement('button', { ...clean(rest), ref, onClick: onPress, disabled }, children);
@@ -175,10 +228,15 @@ jest.mock('react-native', () => {
     StyleSheet: { create: (s: any) => s },
     Animated: {
       View: mk('div'),
-      Value: jest.fn(() => ({ interpolate: jest.fn() })),
+      Value: jest.fn(() => ({
+        interpolate: jest.fn(),
+        setValue: jest.fn(),
+        stopAnimation: jest.fn(),
+      })),
       timing: jest.fn(() => ({ start: jest.fn(), stop: jest.fn() })),
       loop: jest.fn(() => ({ start: jest.fn(), stop: jest.fn() })),
-      sequence: jest.fn(),
+      sequence: jest.fn(() => ({ start: jest.fn(), stop: jest.fn() })),
+      parallel: jest.fn(() => ({ start: jest.fn(), stop: jest.fn() })),
     },
     Alert: { alert: (...args: any[]) => mockAlert(...args) },
     Dimensions: { get: jest.fn(() => ({ width: 375, height: 812 })) },

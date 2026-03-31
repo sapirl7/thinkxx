@@ -50,7 +50,8 @@ const defaultProps = {
   onSettings: mockOnSettings,
   onPlanDetail: mockOnPlanDetail,
   onDeposit: mockOnDeposit,
-  lastPlanAddress: null as string | null,
+  selectedPlanAddress: null as string | null,
+  lastCreatedPlanAddress: null as string | null,
 };
 
 beforeEach(() => {
@@ -82,10 +83,23 @@ describe('DashboardScreen', () => {
     );
   });
 
-  it('shows empty state when no plans and no lastPlanAddress', async () => {
+  it('shows empty state when no plans and no selected plan context', async () => {
     const { container } = render(<DashboardScreen {...defaultProps} />);
     await waitFor(
       () => expect(container.textContent).toContain('No plans yet'),
+      { timeout: 3000 },
+    );
+  });
+
+  it('shows pending sync card when last created plan exists', async () => {
+    const { container } = render(
+      <DashboardScreen
+        {...defaultProps}
+        lastCreatedPlanAddress="4YgMP83QVn2zadubaCBi3btu7qnHPPaErgG95W2nxWHx"
+      />
+    );
+    await waitFor(
+      () => expect(container.textContent).toContain('Plan created, syncing...'),
       { timeout: 3000 },
     );
   });

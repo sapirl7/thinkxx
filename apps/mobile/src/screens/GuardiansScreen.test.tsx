@@ -78,6 +78,17 @@ describe('GuardiansScreen', () => {
     }, { timeout: 3000 });
   });
 
+  it('shows quorum impact and quieter remove action copy', async () => {
+    const { container } = render(
+      <GuardiansScreen planAddress={planAddress} onBack={onBack} />,
+    );
+    await waitFor(() => {
+      expect(container.textContent).toContain('Quorum risk');
+      expect(container.textContent).toContain('After removal');
+      expect(container.textContent).toContain('Remove guardian');
+    }, { timeout: 3000 });
+  });
+
   it('renders add guardian button when below max', async () => {
     const { container } = render(
       <GuardiansScreen planAddress={planAddress} onBack={onBack} />,
@@ -87,10 +98,12 @@ describe('GuardiansScreen', () => {
     }, { timeout: 3000 });
   });
 
-  it('shows header title', () => {
+  it('shows header title', async () => {
     const { container } = render(
       <GuardiansScreen planAddress={planAddress} onBack={onBack} />,
     );
-    expect(container.textContent).toContain('Guardians');
+    await waitFor(() => {
+      expect(container.textContent).toContain('Guardians');
+    }, { timeout: 3000 });
   });
 });

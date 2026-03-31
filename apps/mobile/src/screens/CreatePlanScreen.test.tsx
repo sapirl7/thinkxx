@@ -27,10 +27,14 @@ jest.mock('../providers/WalletProvider', () => ({
 jest.mock('@thinkxx/sdk', () => ({
   ThinkxxClient: jest.fn().mockImplementation(() => ({
     buildInitializePlan: jest.fn().mockReturnValue({
-      instruction: { programId: mockPublicKey, keys: [], data: Buffer.alloc(8) },
+      instruction: { programId: mockPublicKey, keys: [], data: new Uint8Array(8) },
       planPda: mockPublicKey,
     }),
   })),
+  fetchPlan: jest.fn().mockResolvedValue({
+    owner: jest.requireActual('@solana/web3.js').PublicKey.default,
+    planId: 1n,
+  }),
   PlanMode: { Medical: 0, LegalRisk: 1, Legacy: 2 },
 }));
 
@@ -68,6 +72,23 @@ describe('CreatePlanScreen', () => {
     // Need to trigger handleCreate without valid beneficiary
     // Alert should be called with 'Invalid Beneficiary'
     expect(container).toBeTruthy();
+  });
+
+  it('persists created plan through onCreated after confirmed tx', async () => {
+    const { getByText, getByPlaceholderText, getAllByText } = render(
+      <CreatePlanScreen onBack={onBack} onCreated={onCreated} />
+    );
+
+    fireEvent.click(getByText('Medical'));
+    fireEvent.change(getByPlaceholderText('Solana public key (base58)'), {
+      target: { value: mockPublicKey.toBase58() },
+    });
+    const createButtons = getAllByText('Create Plan');
+    fireEvent.click(createButtons[createButtons.length - 1]);
+
+    await waitFor(() => {
+      expect(onCreated).toHaveBeenCalledWith(mockPublicKey.toBase58());
+    });
   });
 
   // ── Timing Validation (tested via extracted logic) ──

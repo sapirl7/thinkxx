@@ -1,7 +1,7 @@
 # Release Readiness Assessment
 
-**Project**: Thinkxx v0.3.0
-**Date**: March 8, 2026
+**Project**: Thinkxx v0.1.0-devnet
+**Date**: March 31, 2026
 **Network**: Solana devnet
 
 ---
@@ -13,7 +13,7 @@
 | Rust / Anchor build | ✅ Pass | 18 instructions, 0 errors |
 | TypeScript strict | ✅ Pass | 6/6 packages |
 | Turborepo full build | ✅ Pass | All tasks successful |
-| Git clean state | ✅ Pass | 7 commits on main |
+| Git clean state | ✅ Pass | Main branch |
 
 ## Protocol Completeness
 
@@ -29,8 +29,17 @@
 
 ## Test Coverage
 
+| Suite | Tests | Status |
+|-------|:-----:|--------|
+| SDK (Vitest) | 44 | ✅ |
+| Mobile (Jest) | 70 | ✅ |
+| Anchor (bankrun) | 69 | ✅ |
+| **Total** | **183** | |
+
+### Test Categories (Anchor)
+
 | Category | Tests | Status |
-|----------|-------|--------|
+|----------|:-----:|--------|
 | Plan initialization | 3 | ✅ |
 | State transitions | 4 | ✅ |
 | Guardian management | 3 | ✅ |
@@ -39,7 +48,6 @@
 | Timing validation | 3 | ✅ |
 | PDA derivation | 5 | ✅ |
 | Security invariants | 5 | ✅ |
-| **Total** | **30** | |
 
 ## Mobile App
 
@@ -48,17 +56,20 @@
 | ConnectScreen | ✅ |
 | DashboardScreen | ✅ |
 | CreatePlanScreen | ✅ |
-| HeartbeatScreen | ✅ |
 | PlanDetailScreen | ✅ |
+| HeartbeatScreen | ✅ |
+| DepositScreen | ✅ |
 | GuardiansScreen | ✅ |
 | SettingsScreen | ✅ |
-| **Total: 7 screens** | |
+| **Total: 8 screens** | |
 
 ## SDK & Tooling
 
 | Component | Status |
 |-----------|--------|
 | ThinkxxClient (15 builders) | ✅ |
+| PDA derivation (5 functions) | ✅ |
+| Account parsing & fetch helpers | ✅ |
 | SponsoredTransactionBuilder | ✅ |
 | ResilientConnection (retry + fallback) | ✅ |
 | CLI (10 commands) | ✅ |
@@ -69,8 +80,8 @@
 
 | Document | Status |
 |----------|--------|
-| README.md | ✅ Full protocol reference |
-| CHANGELOG.md | ✅ 3 versions |
+| README.md | ✅ Comprehensive with Mermaid diagrams |
+| CHANGELOG.md | ✅ v0.1.0-devnet |
 | ARCHITECTURE.md | ✅ |
 | PROTOCOL_SPEC.md | ✅ |
 | STATE_MACHINE.md | ✅ |
@@ -79,10 +90,14 @@
 | SPONSORED_TXS.md | ✅ |
 | NOTIFICATIONS.md | ✅ |
 | RPC_STRATEGY.md | ✅ |
+| MOBILE_UX.md | ✅ |
+| TESTING.md | ✅ |
+| AUDIT_REPORT.md | ✅ |
 | PUBLISH_SAFE.md | ✅ |
 | DAPP_STORE_LISTING.md | ✅ |
 | 10 ADRs | ✅ |
 | AGENTS.md | ✅ |
+| DECISIONS.md | ✅ 10 decisions |
 | CONTRIBUTING.md | ✅ |
 | SECURITY.md | ✅ |
 | CODE_OF_CONDUCT.md | ✅ |
@@ -98,33 +113,20 @@
 | No dead code | ✅ |
 | Conventional commits | ✅ |
 | CI workflows present | ✅ |
+| CODEOWNERS configured | ✅ |
+| PR template present | ✅ |
+| Issue templates present | ✅ |
 
-## Known Limitations (v0.3.0)
+## Known Limitations (v0.1.0-devnet)
 
 1. **Devnet only** — not deployed to mainnet
-2. **Anchor program not yet deployed** — `anchor deploy` pending
-3. **MWA placeholder** — wallet signing uses mock provider; needs real MWA integration for production
-4. **No formal security audit** — code follows best practices but hasn't been audited
+2. **No beneficiary mobile claim UX** — owner-side flows only
+3. **No automated heartbeat** — no push notifications or background timers
+4. **No formal security audit** — code follows best practices but hasn't been audited by a third party
 5. **Token support** — SOL only in v1; SPL token vaults planned for v2
-6. **Mobile warning** — Turbo reports no output files for mobile build (Expo managed workflow)
-7. **Snyk scans** — authentication issue prevents automated security scanning
-
-## Pre-Release Checklist
-
-- [x] All packages build cleanly
-- [x] Tests pass
-- [x] README is comprehensive
-- [x] CHANGELOG follows semantic versioning
-- [x] Store listing prepared
-- [x] App branding configured (dark theme, package name)
-- [ ] Deploy Anchor program to devnet
-- [ ] Wire MWA for real wallet signing
-- [ ] Create app screenshots for store listing
-- [ ] Submit to Solana dApp Store
-- [ ] Tag release v0.3.0
 
 ## Verdict
 
 **✅ Release-ready for devnet preview.**
 
-The project has a production-grade repository structure, comprehensive documentation, 18 on-chain instructions with test coverage, and a 7-screen mobile app. The main blockers for mainnet are: formal security audit, real MWA integration, and Anchor program deployment. All code artifacts are publication-safe and grant-presentation worthy.
+The project has a production-grade repository structure with 183 tests, 18 on-chain instructions, 8 mobile screens, a comprehensive documentation suite (15 spec docs + 10 ADRs), and full CI pipeline. All code artifacts are publication-safe and portfolio-ready.

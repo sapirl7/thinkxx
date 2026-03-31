@@ -16,7 +16,7 @@ Thank you for your interest in contributing to Thinkxx! This project builds a de
 - pnpm 9+
 - Rust (latest stable)
 - Anchor CLI 0.30.1
-- Solana CLI (Agave 3.0+)
+- Solana CLI (Agave 3.0+, only for devnet deploy/manual chain checks)
 - Android Studio (for mobile development)
 - JDK 21+
 
@@ -27,7 +27,29 @@ pnpm run build        # Build all packages
 pnpm run lint         # Lint all packages
 pnpm run typecheck    # TypeScript strict check
 pnpm run test         # Run all tests
+pnpm run test:sdk     # SDK unit tests
+pnpm run test:mobile  # React Native / mobile UI tests
+pnpm run test:anchor  # Bankrun-based Anchor integration suite
+pnpm run test:full:local  # Full local verification before PR
 ```
+
+### Recommended Local Verification
+
+Before opening a pull request, run the smallest command set that matches your change:
+
+- Docs-only or config-only changes: `pnpm run build` and the relevant package tests
+- Mobile UI / state changes: `pnpm run test:mobile`
+- SDK changes: `pnpm run test:sdk`
+- Protocol or cross-layer changes: `pnpm run test:full:local`
+
+If you modify owner-side mobile flows, also do a short manual devnet smoke on Android:
+
+1. Connect wallet
+2. Create plan
+3. Confirm the plan appears on Dashboard
+4. Open Plan Detail
+5. Send Heartbeat
+6. Restart the app and confirm wallet + selected plan restore
 
 ## Coding Standards
 

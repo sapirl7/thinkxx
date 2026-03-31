@@ -10,6 +10,7 @@ import { render } from '@testing-library/react';
 import { PublicKey } from '@solana/web3.js';
 
 import { resetMobileMocks } from './test/setup';
+import { persistPlanSession } from './src/state/plan-session';
 
 let mockCurrentPublicKey: PublicKey | null = null;
 let mockCurrentConnected = false;
@@ -19,6 +20,7 @@ jest.mock('./src/providers/WalletProvider', () => ({
   useWallet: () => ({
     connected: mockCurrentConnected,
     publicKey: mockCurrentPublicKey,
+    hydrated: true,
     connecting: false,
     error: null,
     connection: {},
@@ -34,7 +36,8 @@ jest.mock('./src/screens/ConnectScreen', () => () => <div data-testid="connect-s
 jest.mock('./src/screens/DashboardScreen', () => (props: any) => (
   <div data-testid="dashboard-screen">
     Dashboard
-    <span data-testid="last-plan">{props.lastPlanAddress ?? 'none'}</span>
+    <span data-testid="selected-plan">{props.selectedPlanAddress ?? 'none'}</span>
+    <span data-testid="created-plan">{props.lastCreatedPlanAddress ?? 'none'}</span>
   </div>
 ));
 jest.mock('./src/screens/CreatePlanScreen', () => (props: any) => (
@@ -56,47 +59,61 @@ beforeEach(() => {
 });
 
 describe('App navigator', () => {
-  it('shows ConnectScreen when not connected', () => {
+  it('shows ConnectScreen when not connected', async () => {
     mockCurrentConnected = false;
     mockCurrentPublicKey = null;
 
-    const { getByTestId } = render(<App />);
-    expect(getByTestId('connect-screen')).toBeTruthy();
+    const { findByTestId } = render(<App />);
+    expect(await findByTestId('connect-screen')).toBeTruthy();
   });
 
-  it('shows DashboardScreen when connected', () => {
+  it('shows DashboardScreen when connected', async () => {
     mockCurrentConnected = true;
     mockCurrentPublicKey = PublicKey.default;
 
-    const { getByTestId } = render(<App />);
-    expect(getByTestId('dashboard-screen')).toBeTruthy();
+    const { findByTestId } = render(<App />);
+    expect(await findByTestId('dashboard-screen')).toBeTruthy();
   });
 
-  it('resets lastPlanAddress when wallet address changes', () => {
+  it('resets selected plan context when wallet address changes', async () => {
     const walletA = PublicKey.unique();
     const walletB = PublicKey.unique();
+    const storedPlanAddress = PublicKey.unique().toBase58();
+
+    await persistPlanSession({
+      walletOwner: walletA.toBase58(),
+      selectedPlanPda: storedPlanAddress,
+      lastCreatedPlanPda: storedPlanAddress,
+      knownPlanPdas: [storedPlanAddress],
+    });
 
     mockCurrentConnected = true;
     mockCurrentPublicKey = walletA;
 
-    const { getByTestId, rerender } = render(<App />);
-    expect(getByTestId('dashboard-screen')).toBeTruthy();
+    const { findByTestId, getByTestId, rerender } = render(<App />);
+    expect(await findByTestId('dashboard-screen')).toBeTruthy();
+    expect(getByTestId('selected-plan').textContent).toBe(storedPlanAddress);
+    expect(getByTestId('created-plan').textContent).toBe(storedPlanAddress);
 
     // Switch wallet
     mockCurrentPublicKey = walletB;
     rerender(<App />);
 
-    const lastPlan = getByTestId('last-plan');
-    expect(lastPlan.textContent).toBe('none');
+    await findByTestId('dashboard-screen');
+
+    const selectedPlan = getByTestId('selected-plan');
+    const createdPlan = getByTestId('created-plan');
+    expect(selectedPlan.textContent).toBe('none');
+    expect(createdPlan.textContent).toBe('none');
   });
 
-  it('does NOT reset when same wallet re-renders', () => {
+  it('does NOT reset when same wallet re-renders', async () => {
     const wallet = PublicKey.default;
     mockCurrentConnected = true;
     mockCurrentPublicKey = wallet;
 
-    const { getByTestId, rerender } = render(<App />);
-    expect(getByTestId('dashboard-screen')).toBeTruthy();
+    const { findByTestId, getByTestId, rerender } = render(<App />);
+    expect(await findByTestId('dashboard-screen')).toBeTruthy();
 
     // Re-render with same wallet — no reset
     rerender(<App />);

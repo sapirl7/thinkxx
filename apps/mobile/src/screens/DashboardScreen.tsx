@@ -1,19 +1,26 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import {
-  View,
+  ActivityIndicator,
+  RefreshControl,
+  StyleSheet,
   Text,
   TouchableOpacity,
-  StyleSheet,
-  SafeAreaView,
-  ScrollView,
-  RefreshControl,
-  ActivityIndicator,
+  View,
 } from 'react-native';
-import { StatusBar } from 'expo-status-bar';
 import { LAMPORTS_PER_SOL } from '@solana/web3.js';
-import { fetchPlansByOwner, PlanState, PlanMode } from '@thinkxx/sdk';
+import { fetchPlansByOwner, PlanMode, PlanState } from '@thinkxx/sdk';
 import type { PlanWithAddress } from '@thinkxx/sdk';
 import { useWallet } from '../providers/WalletProvider';
+import ScreenShell from '../components/ScreenShell';
+import {
+  AddressBlock,
+  MetricPanel,
+  Panel,
+  PrimaryButton,
+  SectionHeading,
+  SecondaryButton,
+  StatusPill,
+} from '../components/Primitives';
 import { theme } from '../theme';
 
 interface DashboardScreenProps {
@@ -22,12 +29,114 @@ interface DashboardScreenProps {
   onSettings: () => void;
   onPlanDetail: (planAddress: string) => void;
   onDeposit: (planAddress: string) => void;
-  lastPlanAddress: string | null;
+  selectedPlanAddress: string | null;
+  lastCreatedPlanAddress: string | null;
+}
+
+const MODE_LABELS: Record<number, string> = {
+  [PlanMode.Medical]: 'Medical',
+  [PlanMode.LegalRisk]: 'Legal Risk',
+  [PlanMode.Legacy]: 'Legacy',
+};
+
+const STATE_LABELS: Record<number, string> = {
+  [PlanState.Draft]: 'Draft',
+  [PlanState.Active]: 'Active',
+  [PlanState.ClaimPending]: 'Claim Pending',
+  [PlanState.ClaimApproved]: 'Approved',
+  [PlanState.Claimed]: 'Claimed',
+  [PlanState.Cancelled]: 'Cancelled',
+  [PlanState.Paused]: 'Paused',
+};
+
+function stateTone(state: number): 'primary' | 'success' | 'warning' | 'danger' | 'neutral' {
+  switch (state) {
+    case PlanState.Active:
+      return 'success';
+    case PlanState.ClaimApproved:
+    case PlanState.Paused:
+      return 'warning';
+    case PlanState.ClaimPending:
+      return 'danger';
+    case PlanState.Claimed:
+      return 'primary';
+    default:
+      return 'neutral';
+  }
+}
+
+function formatHeartbeat(timestamp: bigint): string {
+  const millis = Number(timestamp) * 1000;
+  if (millis <= 0) {
+    return 'No heartbeat yet';
+  }
+  const date = new Date(millis);
+  return `${date.toLocaleDateString()} • ${date.toLocaleTimeString()}`;
+}
+
+function CommandTile({
+  label,
+  code,
+  description,
+  onPress,
+}: {
+  label: string;
+  code: string;
+  description: string;
+  onPress?: () => void;
+}): React.JSX.Element {
+  return (
+    <TouchableOpacity
+      style={[styles.commandTile, !onPress && styles.commandTileDisabled]}
+      activeOpacity={0.82}
+      disabled={!onPress}
+      onPress={onPress}
+    >
+      <View style={styles.commandCode}>
+        <Text style={styles.commandCodeText}>{code}</Text>
+      </View>
+      <Text style={styles.commandLabel}>{label}</Text>
+      <Text style={styles.commandDescription}>{description}</Text>
+    </TouchableOpacity>
+  );
+}
+
+function PlanCard({
+  plan,
+  onPress,
+  selected,
+}: {
+  plan: PlanWithAddress;
+  onPress: () => void;
+  selected: boolean;
+}): React.JSX.Element {
+  const vaultSol = Number(plan.vaultLamports) / LAMPORTS_PER_SOL;
+
+  return (
+    <TouchableOpacity onPress={onPress} activeOpacity={0.82}>
+      <Panel style={[styles.planCard, selected && styles.planCardSelected]} tone={selected ? 'primary' : 'neutral'}>
+        <View style={styles.planHeader}>
+          <View>
+            <Text style={styles.planMode}>{MODE_LABELS[plan.mode] ?? 'Unknown'}</Text>
+            <Text style={styles.planBalance}>{vaultSol.toFixed(4)} SOL</Text>
+          </View>
+          <View style={styles.planHeaderBadges}>
+            {selected ? <StatusPill label="Selected" tone="primary" /> : null}
+            <StatusPill label={STATE_LABELS[plan.state] ?? 'Unknown'} tone={stateTone(plan.state)} />
+          </View>
+        </View>
+        <AddressBlock
+          label="Plan account"
+          address={plan.address.toBase58()}
+          helper={`Last heartbeat: ${formatHeartbeat(plan.lastHeartbeat)}`}
+        />
+      </Panel>
+    </TouchableOpacity>
+  );
 }
 
 /**
- * Dashboard screen — main view after wallet connection.
- * Fetches real plans via getProgramAccounts and shows vault status.
+ * Dashboard screen — the owner command deck.
  */
 export default function DashboardScreen({
   onCreatePlan,
@@ -35,7 +144,8 @@ export default function DashboardScreen({
   onSettings,
   onPlanDetail,
   onDeposit,
-  lastPlanAddress,
+  selectedPlanAddress,
+  lastCreatedPlanAddress,
 }: DashboardScreenProps): React.JSX.Element {
   const { shortAddress, disconnect, connection, publicKey } = useWallet();
   const [plans, setPlans] = useState<PlanWithAddress[]>([]);
@@ -70,7 +180,7 @@ export default function DashboardScreen({
 
   useEffect(() => {
     setLoading(true);
-    fetchData();
+    void fetchData();
   }, [fetchData]);
 
   const onRefresh = useCallback(async () => {
@@ -79,463 +189,287 @@ export default function DashboardScreen({
     setRefreshing(false);
   }, [fetchData]);
 
-  const firstPlanAddress = plans[0]?.address.toBase58() ?? lastPlanAddress;
+  const fallbackPlanAddress = selectedPlanAddress ?? lastCreatedPlanAddress;
+  const firstPlanAddress = plans[0]?.address.toBase58() ?? fallbackPlanAddress;
+  const hasResolvedPlan = Boolean(firstPlanAddress);
+  const showPendingSync = !loading && plans.length === 0 && Boolean(firstPlanAddress);
+  const prioritizedPlans = selectedPlanAddress
+    ? [...plans].sort((left, right) => {
+        const leftSelected = left.address.toBase58() === selectedPlanAddress ? 1 : 0;
+        const rightSelected = right.address.toBase58() === selectedPlanAddress ? 1 : 0;
+        return rightSelected - leftSelected;
+      })
+    : plans;
 
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar style="light" />
-
-      {/* Header */}
-      <View style={styles.header}>
-        <View>
-          <Text style={styles.greeting}>Thinkxx</Text>
-          <Text style={styles.address}>{shortAddress ?? '...'}</Text>
-        </View>
-        <TouchableOpacity
-          style={styles.disconnectButton}
-          onPress={disconnect}
-        >
+    <ScreenShell
+      title="Owner Console"
+      subtitle={`Connected as ${shortAddress ?? '…'} on devnet.`}
+      eyebrow="Thinkxx / command deck"
+      scroll
+      rightSlot={
+        <TouchableOpacity style={styles.disconnectButton} onPress={disconnect} activeOpacity={0.82}>
           <Text style={styles.disconnectText}>Disconnect</Text>
         </TouchableOpacity>
-      </View>
+      }
+      contentContainerStyle={styles.content}
+    >
+      <MetricPanel
+        eyebrow="Wallet balance"
+        value={balance !== null ? `${balance.toFixed(4)} SOL` : '—'}
+        caption="Devnet owner wallet"
+      />
 
-      <ScrollView
-        style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.colors.primary} />
-        }
-      >
-        {/* Wallet Balance Card */}
-        <View style={styles.balanceCard}>
-          <Text style={styles.balanceLabel}>Wallet Balance</Text>
-          <Text style={styles.balanceValue}>
-            {balance !== null ? `${balance.toFixed(4)} SOL` : '—'}
-          </Text>
-          <Text style={styles.networkTag}>devnet</Text>
-        </View>
+      {hasResolvedPlan ? (
+        <Panel tone="primary">
+          <SectionHeading label="Active plan focus" />
+          <Text style={styles.focusTitle}>Plan-bound actions are locked to the currently selected plan.</Text>
+          <AddressBlock
+            label="Selected plan"
+            address={firstPlanAddress ?? null}
+            helper="Heartbeat, status and deposit operate on this plan until you open another one."
+          />
+        </Panel>
+      ) : null}
 
-        {/* Error State */}
-        {error && (
-          <View style={styles.errorCard}>
-            <Text style={styles.errorText}>⚠️ {error}</Text>
-            <TouchableOpacity style={styles.retryButton} onPress={onRefresh}>
-              <Text style={styles.retryText}>Retry</Text>
-            </TouchableOpacity>
-          </View>
-        )}
+      {error ? (
+        <Panel tone="danger">
+          <SectionHeading
+            label="Sync issue"
+            action={<SecondaryButton label="Retry" tone="danger" onPress={onRefresh} />}
+          />
+          <Text style={styles.inlineError}>{error}</Text>
+        </Panel>
+      ) : null}
 
-        {/* Plans Section */}
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Your Plans</Text>
-            <TouchableOpacity style={styles.createButton} onPress={onCreatePlan}>
-              <Text style={styles.createButtonText}>+ New Plan</Text>
-            </TouchableOpacity>
-          </View>
+      <View style={styles.sectionBlock}>
+        <SectionHeading
+          label="Your Plans"
+          action={<PrimaryButton label="+ New Plan" onPress={onCreatePlan} style={styles.compactPrimary} />}
+        />
 
-          {loading ? (
-            <View style={styles.loadingState}>
+        {loading ? (
+          <Panel>
+            <View style={styles.centerState}>
               <ActivityIndicator color={theme.colors.primary} size="large" />
-              <Text style={styles.loadingText}>Loading plans...</Text>
+              <Text style={styles.centerStateText}>Loading plans…</Text>
             </View>
-          ) : plans.length === 0 ? (
-            <View style={styles.emptyState}>
-              <Text style={styles.emptyIcon}>📋</Text>
-              <Text style={styles.emptyTitle}>No plans yet</Text>
-              <Text style={styles.emptyDescription}>
-                Create your first emergency access plan to protect your assets
-              </Text>
-              <TouchableOpacity style={styles.emptyButton} onPress={onCreatePlan}>
-                <Text style={styles.emptyButtonText}>Create Plan</Text>
-              </TouchableOpacity>
-            </View>
-          ) : (
-            plans.map(plan => (
+          </Panel>
+        ) : showPendingSync ? (
+          <Panel tone="warning">
+            <SectionHeading label="Pending sync" />
+            <Text style={styles.pendingTitle}>Plan created, syncing...</Text>
+            <Text style={styles.pendingBody}>
+              The transaction is done. Open the selected plan directly while getProgramAccounts catches up.
+            </Text>
+            <AddressBlock label="Pending plan" address={firstPlanAddress ?? null} />
+            <PrimaryButton
+              label="Open Plan"
+              tone="secondary"
+              onPress={firstPlanAddress ? () => onPlanDetail(firstPlanAddress) : undefined}
+            />
+          </Panel>
+        ) : plans.length === 0 ? (
+          <Panel tone="neutral">
+            <SectionHeading label="No plans yet" />
+            <Text style={styles.emptyTitle}>No plans yet</Text>
+            <Text style={styles.emptyBody}>
+              Create your first emergency-access plan to unlock heartbeat, deposit, and guardian management.
+            </Text>
+            <PrimaryButton label="Create Plan" onPress={onCreatePlan} />
+          </Panel>
+        ) : (
+          <View style={styles.planStack}>
+            {prioritizedPlans.map(plan => (
               <PlanCard
                 key={plan.address.toBase58()}
                 plan={plan}
+                selected={plan.address.toBase58() === selectedPlanAddress}
                 onPress={() => onPlanDetail(plan.address.toBase58())}
               />
-            ))
-          )}
-        </View>
-
-        {/* Quick Actions */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Quick Actions</Text>
-          <View style={styles.actionsGrid}>
-            <ActionTile
-              icon="💓"
-              label="Heartbeat"
-              color={theme.colors.secondary}
-              onPress={() => onHeartbeat(firstPlanAddress ?? undefined)}
-            />
-            <ActionTile
-              icon="📥"
-              label="Deposit"
-              color={theme.colors.accent}
-              onPress={firstPlanAddress ? () => onDeposit(firstPlanAddress) : undefined}
-            />
-            <ActionTile
-              icon="👁"
-              label="Status"
-              color={theme.colors.primaryLight}
-              onPress={firstPlanAddress ? () => onPlanDetail(firstPlanAddress) : undefined}
-            />
-            <ActionTile icon="⚙️" label="Settings" color={theme.colors.textMuted} onPress={onSettings} />
+            ))}
           </View>
-        </View>
-      </ScrollView>
-    </SafeAreaView>
-  );
-}
-
-// ─── Sub-Components ──────────────────────────────────────────────────────────
-
-const MODE_LABELS: Record<number, string> = {
-  [PlanMode.Medical]: 'MEDICAL',
-  [PlanMode.LegalRisk]: 'LEGAL RISK',
-  [PlanMode.Legacy]: 'LEGACY',
-};
-
-const STATE_LABELS: Record<number, string> = {
-  [PlanState.Draft]: 'Draft',
-  [PlanState.Active]: 'Active',
-  [PlanState.ClaimPending]: 'Claim Pending',
-  [PlanState.ClaimApproved]: 'Approved',
-  [PlanState.Claimed]: 'Claimed',
-  [PlanState.Cancelled]: 'Cancelled',
-  [PlanState.Paused]: 'Paused',
-};
-
-const MODE_COLORS: Record<number, string> = {
-  [PlanMode.Medical]: theme.colors.danger,
-  [PlanMode.LegalRisk]: theme.colors.warning,
-  [PlanMode.Legacy]: theme.colors.primary,
-};
-
-const STATE_COLORS: Record<number, string> = {
-  [PlanState.Draft]: theme.colors.textMuted,
-  [PlanState.Active]: theme.colors.success,
-  [PlanState.ClaimPending]: theme.colors.danger,
-  [PlanState.ClaimApproved]: theme.colors.warning,
-  [PlanState.Claimed]: theme.colors.primary,
-  [PlanState.Cancelled]: theme.colors.textMuted,
-  [PlanState.Paused]: theme.colors.warning,
-};
-
-function PlanCard({ plan, onPress }: { plan: PlanWithAddress; onPress: () => void }): React.JSX.Element {
-  const vaultSol = Number(plan.vaultLamports) / LAMPORTS_PER_SOL;
-  const lastBeat = new Date(Number(plan.lastHeartbeat) * 1000);
-  const stateColor = STATE_COLORS[plan.state] ?? theme.colors.textMuted;
-
-  return (
-    <TouchableOpacity style={styles.planCard} activeOpacity={0.7} onPress={onPress}>
-      <View style={styles.planCardHeader}>
-        <View style={[styles.modeBadge, { backgroundColor: MODE_COLORS[plan.mode] ?? theme.colors.primary }]}>
-          <Text style={styles.modeBadgeText}>{MODE_LABELS[plan.mode] ?? 'UNKNOWN'}</Text>
-        </View>
-        <View style={[styles.stateBadge, { backgroundColor: `${stateColor}20` }]}>
-          <View style={[styles.stateDot, { backgroundColor: stateColor }]} />
-          <Text style={[styles.stateText, { color: stateColor }]}>
-            {STATE_LABELS[plan.state] ?? 'Unknown'}
-          </Text>
-        </View>
+        )}
       </View>
-      <Text style={styles.planBalance}>{vaultSol.toFixed(4)} SOL</Text>
-      <Text style={styles.planAddress}>
-        {plan.address.toBase58().slice(0, 8)}...{plan.address.toBase58().slice(-8)}
-      </Text>
-      <Text style={styles.planMeta}>
-        Last heartbeat: {lastBeat.toLocaleDateString()} {lastBeat.toLocaleTimeString()}
-      </Text>
-    </TouchableOpacity>
-  );
-}
 
-function ActionTile({
-  icon,
-  label,
-  color,
-  onPress,
-}: {
-  icon: string;
-  label: string;
-  color: string;
-  onPress?: () => void;
-}): React.JSX.Element {
-  return (
-    <TouchableOpacity
-      style={[styles.actionTile, !onPress && styles.actionTileDisabled]}
-      activeOpacity={0.7}
-      onPress={onPress}
-      disabled={!onPress}
-    >
-      <View style={[styles.actionIconContainer, { backgroundColor: `${color}15` }]}>
-        <Text style={styles.actionIcon}>{icon}</Text>
+      <View style={styles.sectionBlock}>
+        <SectionHeading label="Quick Actions" />
+        <View style={styles.commandsGrid}>
+          <CommandTile
+            code="HB"
+            label="Heartbeat"
+            description="Reset inactivity timer for the active plan."
+            onPress={hasResolvedPlan ? () => onHeartbeat(firstPlanAddress ?? undefined) : undefined}
+          />
+          <CommandTile
+            code="DP"
+            label="Deposit"
+            description="Move SOL from wallet into the selected vault."
+            onPress={hasResolvedPlan ? () => onDeposit(firstPlanAddress as string) : undefined}
+          />
+          <CommandTile
+            code="ST"
+            label="Status"
+            description="Inspect vault, timers, and guardian quorum."
+            onPress={hasResolvedPlan ? () => onPlanDetail(firstPlanAddress as string) : undefined}
+          />
+          <CommandTile
+            code="CFG"
+            label="Settings"
+            description="Connection, endpoint, version, and future automations."
+            onPress={onSettings}
+          />
+        </View>
+        {!hasResolvedPlan ? (
+          <Text style={styles.planHint}>Create or sync a plan before using plan actions.</Text>
+        ) : null}
       </View>
-      <Text style={styles.actionLabel}>{label}</Text>
-    </TouchableOpacity>
+    </ScreenShell>
   );
 }
-
-// ─── Styles ──────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: theme.colors.background,
-  },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: theme.spacing.lg,
-    paddingTop: theme.spacing.md,
-    paddingBottom: theme.spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: theme.colors.border,
-  },
-  greeting: {
-    fontSize: theme.fontSize.xl,
-    fontWeight: theme.fontWeight.bold,
-    color: theme.colors.text,
-  },
-  address: {
-    fontSize: theme.fontSize.sm,
-    color: theme.colors.textSecondary,
-    marginTop: 2,
+  content: {
+    gap: theme.spacing.lg,
   },
   disconnectButton: {
     paddingHorizontal: theme.spacing.md,
     paddingVertical: theme.spacing.sm,
-    borderRadius: theme.borderRadius.sm,
+    borderRadius: theme.borderRadius.full,
     borderWidth: 1,
-    borderColor: theme.colors.border,
+    borderColor: theme.colors.borderStrong,
+    backgroundColor: theme.colors.surfaceMuted,
   },
   disconnectText: {
+    color: theme.colors.textSoft,
     fontSize: theme.fontSize.sm,
-    color: theme.colors.textSecondary,
+    fontWeight: theme.fontWeight.semibold,
   },
-  scrollView: {
-    flex: 1,
-  },
-  scrollContent: {
-    padding: theme.spacing.lg,
-    gap: theme.spacing.lg,
-  },
-  balanceCard: {
-    backgroundColor: theme.colors.surface,
-    borderRadius: theme.borderRadius.lg,
-    padding: theme.spacing.lg,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    alignItems: 'center',
-  },
-  balanceLabel: {
-    fontSize: theme.fontSize.sm,
-    color: theme.colors.textSecondary,
-    marginBottom: theme.spacing.xs,
-  },
-  balanceValue: {
-    fontSize: theme.fontSize.xxl,
-    fontWeight: theme.fontWeight.bold,
+  inlineError: {
     color: theme.colors.text,
-  },
-  networkTag: {
-    fontSize: theme.fontSize.xs,
-    color: theme.colors.primary,
-    marginTop: theme.spacing.xs,
-  },
-  errorCard: {
-    backgroundColor: `${theme.colors.danger}10`,
-    borderRadius: theme.borderRadius.md,
-    padding: theme.spacing.md,
-    borderWidth: 1,
-    borderColor: `${theme.colors.danger}30`,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  errorText: {
-    color: theme.colors.dangerLight,
     fontSize: theme.fontSize.sm,
-    flex: 1,
+    lineHeight: 20,
   },
-  retryButton: {
-    backgroundColor: `${theme.colors.danger}20`,
-    borderRadius: theme.borderRadius.sm,
+  sectionBlock: {
+    gap: theme.spacing.md,
+  },
+  compactPrimary: {
+    minHeight: 42,
     paddingHorizontal: theme.spacing.md,
-    paddingVertical: theme.spacing.sm,
-    marginLeft: theme.spacing.sm,
   },
-  retryText: {
-    color: theme.colors.dangerLight,
-    fontSize: theme.fontSize.sm,
-    fontWeight: theme.fontWeight.semibold,
-  },
-  section: {
-    gap: theme.spacing.md,
-  },
-  sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  sectionTitle: {
-    fontSize: theme.fontSize.lg,
-    fontWeight: theme.fontWeight.semibold,
-    color: theme.colors.text,
-  },
-  createButton: {
-    backgroundColor: theme.colors.primary,
-    borderRadius: theme.borderRadius.sm,
-    paddingHorizontal: theme.spacing.md,
-    paddingVertical: theme.spacing.sm,
-  },
-  createButtonText: {
-    fontSize: theme.fontSize.sm,
-    fontWeight: theme.fontWeight.semibold,
-    color: theme.colors.text,
-  },
-  loadingState: {
-    backgroundColor: theme.colors.surface,
-    borderRadius: theme.borderRadius.lg,
-    padding: theme.spacing.xl,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    gap: theme.spacing.md,
-  },
-  loadingText: {
-    fontSize: theme.fontSize.sm,
-    color: theme.colors.textSecondary,
-  },
-  emptyState: {
-    backgroundColor: theme.colors.surface,
-    borderRadius: theme.borderRadius.lg,
-    padding: theme.spacing.xl,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    borderStyle: 'dashed',
-  },
-  emptyIcon: {
-    fontSize: 48,
-    marginBottom: theme.spacing.md,
-  },
-  emptyTitle: {
-    fontSize: theme.fontSize.lg,
-    fontWeight: theme.fontWeight.semibold,
-    color: theme.colors.text,
-    marginBottom: theme.spacing.xs,
-  },
-  emptyDescription: {
-    fontSize: theme.fontSize.sm,
-    color: theme.colors.textSecondary,
-    textAlign: 'center',
-    marginBottom: theme.spacing.lg,
-  },
-  emptyButton: {
-    backgroundColor: theme.colors.primary,
-    borderRadius: theme.borderRadius.md,
-    paddingHorizontal: theme.spacing.lg,
-    paddingVertical: theme.spacing.md,
-  },
-  emptyButtonText: {
-    fontSize: theme.fontSize.md,
-    fontWeight: theme.fontWeight.bold,
-    color: theme.colors.text,
-  },
-  planCard: {
-    backgroundColor: theme.colors.surface,
-    borderRadius: theme.borderRadius.md,
-    padding: theme.spacing.md,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-  },
-  planCardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: theme.spacing.sm,
-  },
-  modeBadge: {
-    borderRadius: theme.borderRadius.sm,
-    paddingHorizontal: theme.spacing.sm,
-    paddingVertical: 2,
-  },
-  modeBadgeText: {
-    fontSize: theme.fontSize.xs,
-    fontWeight: theme.fontWeight.bold,
-    color: theme.colors.text,
-  },
-  stateBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderRadius: theme.borderRadius.full,
-    paddingHorizontal: theme.spacing.sm,
-    paddingVertical: 2,
-    gap: 4,
-  },
-  stateDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-  },
-  stateText: {
-    fontSize: theme.fontSize.xs,
-    fontWeight: theme.fontWeight.semibold,
-  },
-  planBalance: {
-    fontSize: theme.fontSize.xl,
-    fontWeight: theme.fontWeight.bold,
-    color: theme.colors.text,
-    marginBottom: theme.spacing.xs,
-  },
-  planAddress: {
-    fontSize: theme.fontSize.xs,
-    color: theme.colors.textSecondary,
-    fontFamily: 'monospace',
-    marginBottom: theme.spacing.xs,
-  },
-  planMeta: {
-    fontSize: theme.fontSize.xs,
-    color: theme.colors.textMuted,
-  },
-  actionsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: theme.spacing.md,
-  },
-  actionTile: {
-    flex: 1,
-    minWidth: '40%',
-    backgroundColor: theme.colors.surface,
-    borderRadius: theme.borderRadius.md,
-    padding: theme.spacing.md,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-  },
-  actionTileDisabled: {
-    opacity: 0.4,
-  },
-  actionIconContainer: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+  centerState: {
+    minHeight: 160,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: theme.spacing.sm,
+    gap: theme.spacing.md,
   },
-  actionIcon: {
-    fontSize: 24,
-  },
-  actionLabel: {
+  centerStateText: {
+    color: theme.colors.textSecondary,
     fontSize: theme.fontSize.sm,
-    fontWeight: theme.fontWeight.medium,
+  },
+  pendingTitle: {
     color: theme.colors.text,
+    fontSize: theme.fontSize.lg,
+    fontWeight: theme.fontWeight.bold,
+  },
+  pendingBody: {
+    color: theme.colors.textSecondary,
+    fontSize: theme.fontSize.sm,
+    lineHeight: 20,
+  },
+  emptyTitle: {
+    color: theme.colors.text,
+    fontSize: theme.fontSize.xl,
+    fontWeight: theme.fontWeight.bold,
+  },
+  emptyBody: {
+    color: theme.colors.textSecondary,
+    fontSize: theme.fontSize.sm,
+    lineHeight: 20,
+  },
+  planStack: {
+    gap: theme.spacing.md,
+  },
+  planCard: {
+    gap: theme.spacing.md,
+  },
+  planHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: theme.spacing.md,
+    alignItems: 'flex-start',
+  },
+  planHeaderBadges: {
+    alignItems: 'flex-end',
+    gap: theme.spacing.sm,
+  },
+  planMode: {
+    color: theme.colors.textSecondary,
+    fontSize: theme.fontSize.sm,
+    textTransform: 'uppercase',
+    letterSpacing: 1.2,
+    fontWeight: theme.fontWeight.bold,
+  },
+  planBalance: {
+    color: theme.colors.text,
+    fontSize: 30,
+    lineHeight: 34,
+    fontWeight: theme.fontWeight.bold,
+    marginTop: theme.spacing.xs,
+  },
+  planCardSelected: {
+    borderColor: theme.colors.primary,
+  },
+  focusTitle: {
+    color: theme.colors.text,
+    fontSize: theme.fontSize.md,
+    fontWeight: theme.fontWeight.semibold,
+    lineHeight: 22,
+  },
+  commandsGrid: {
+    gap: theme.spacing.md,
+  },
+  commandTile: {
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.borderRadius.xl,
+    borderWidth: 1,
+    borderColor: theme.colors.borderStrong,
+    padding: theme.spacing.lg,
+    gap: theme.spacing.sm,
+  },
+  commandTileDisabled: {
+    opacity: 0.48,
+  },
+  commandCode: {
+    alignSelf: 'flex-start',
+    minWidth: 52,
+    paddingHorizontal: theme.spacing.sm,
+    paddingVertical: theme.spacing.xs,
+    borderRadius: theme.borderRadius.full,
+    backgroundColor: theme.colors.surfaceElevated,
+    borderWidth: 1,
+    borderColor: theme.colors.borderStrong,
+  },
+  commandCodeText: {
+    color: theme.colors.primaryLight,
+    fontSize: theme.fontSize.xs,
+    fontWeight: theme.fontWeight.bold,
+    letterSpacing: 1.2,
+    textAlign: 'center',
+  },
+  commandLabel: {
+    color: theme.colors.text,
+    fontSize: theme.fontSize.lg,
+    fontWeight: theme.fontWeight.bold,
+  },
+  commandDescription: {
+    color: theme.colors.textSecondary,
+    fontSize: theme.fontSize.sm,
+    lineHeight: 20,
+  },
+  planHint: {
+    color: theme.colors.warning,
+    fontSize: theme.fontSize.sm,
+    lineHeight: 19,
   },
 });

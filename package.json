@@ -1,7 +1,7 @@
 {
   "name": "thinkxx",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.0-devnet",
   "description": "Non-custodial Solana Mobile dApp for emergency access and inheritance planning",
   "repository": {
     "type": "git",

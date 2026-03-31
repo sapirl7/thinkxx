@@ -1,25 +1,34 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  ScrollView,
-  Alert,
   ActivityIndicator,
+  Alert,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
-import { PublicKey, Transaction } from '@solana/web3.js';
-import { LAMPORTS_PER_SOL } from '@solana/web3.js';
+import { LAMPORTS_PER_SOL, PublicKey, Transaction } from '@solana/web3.js';
 import {
-  ThinkxxClient,
+  deriveGuardianSetPda,
+  deriveSolVaultPda,
+  fetchGuardianSet,
+  fetchPlan,
   PlanMode,
   PlanState,
-  fetchPlan,
-  fetchGuardianSet,
+  ThinkxxClient,
 } from '@thinkxx/sdk';
-import type { PlanAccountData, ParsedGuardianSet } from '@thinkxx/sdk';
-import { deriveGuardianSetPda, deriveSolVaultPda } from '@thinkxx/sdk';
+import type { ParsedGuardianSet, PlanAccountData } from '@thinkxx/sdk';
 import { useWallet } from '../providers/WalletProvider';
+import ScreenShell from '../components/ScreenShell';
+import {
+  AddressBlock,
+  KeyValueRow,
+  Panel,
+  PrimaryButton,
+  SectionHeading,
+  SecondaryButton,
+  StatusPill,
+} from '../components/Primitives';
 import { theme } from '../theme';
 
 interface PlanDetailScreenProps {
@@ -46,15 +55,21 @@ const STATE_LABELS: Record<number, string> = {
   [PlanState.Paused]: 'Paused',
 };
 
-const STATE_COLORS: Record<number, string> = {
-  [PlanState.Draft]: '#6E7681',
-  [PlanState.Active]: theme.colors.success,
-  [PlanState.ClaimPending]: theme.colors.danger,
-  [PlanState.ClaimApproved]: theme.colors.warning,
-  [PlanState.Claimed]: theme.colors.primary,
-  [PlanState.Cancelled]: '#6E7681',
-  [PlanState.Paused]: theme.colors.warning,
-};
+function stateTone(state: number): 'primary' | 'success' | 'warning' | 'danger' | 'neutral' {
+  switch (state) {
+    case PlanState.Active:
+      return 'success';
+    case PlanState.ClaimApproved:
+    case PlanState.Paused:
+      return 'warning';
+    case PlanState.ClaimPending:
+      return 'danger';
+    case PlanState.Claimed:
+      return 'primary';
+    default:
+      return 'neutral';
+  }
+}
 
 function formatTimeSince(timestamp: bigint): string {
   const seconds = Math.floor(Date.now() / 1000) - Number(timestamp);
@@ -62,10 +77,6 @@ function formatTimeSince(timestamp: bigint): string {
   if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
   if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
   return `${Math.floor(seconds / 86400)}d ago`;
-}
-
-function shortenAddress(addr: string): string {
-  return `${addr.slice(0, 4)}...${addr.slice(-4)}`;
 }
 
 export default function PlanDetailScreen({
@@ -106,11 +117,11 @@ export default function PlanDetailScreen({
     } finally {
       setLoading(false);
     }
-  }, [connection, planAddress, onBack]);
+  }, [connection, onBack, planPda]);
 
   useEffect(() => {
     setLoading(true);
-    fetchData();
+    void fetchData();
   }, [fetchData]);
 
   const handlePauseResume = useCallback(async () => {
@@ -130,259 +141,217 @@ export default function PlanDetailScreen({
     } finally {
       setActing(false);
     }
-  }, [plan, publicKey, connection, signAndSendTransaction, fetchData]);
+  }, [connection, fetchData, plan, planPda, publicKey, signAndSendTransaction]);
 
   if (loading) {
     return (
-      <View style={styles.container}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={onBack} style={styles.backBtn}>
-            <Text style={styles.backText}>← Back</Text>
-          </TouchableOpacity>
-          <Text style={styles.title}>Plan Details</Text>
-          <View style={styles.backBtn} />
-        </View>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator color={theme.colors.primary} size="large" />
-          <Text style={styles.loadingText}>Loading plan...</Text>
-        </View>
-      </View>
+      <ScreenShell
+        title="Plan Detail"
+        subtitle="Resolving plan state from chain."
+        eyebrow="Owner flow / plan detail"
+        onBack={onBack}
+      >
+        <Panel>
+          <View style={styles.loadingState}>
+            <ActivityIndicator color={theme.colors.primary} size="large" />
+            <Text style={styles.loadingText}>Loading plan...</Text>
+          </View>
+        </Panel>
+      </ScreenShell>
     );
   }
 
-  if (!plan) return <View style={styles.container} />;
+  if (!plan) {
+    return (
+      <ScreenShell
+        title="Plan Detail"
+        subtitle="Selected plan is unavailable."
+        eyebrow="Owner flow / plan detail"
+        onBack={onBack}
+      >
+        <Panel tone="danger">
+          <SectionHeading label="Plan not found" />
+          <Text style={styles.emptyText}>Return to Dashboard and sync plans again.</Text>
+        </Panel>
+      </ScreenShell>
+    );
+  }
 
-  const stateColor = STATE_COLORS[plan.state] ?? '#6E7681';
   const stateLabel = STATE_LABELS[plan.state] ?? 'Unknown';
   const modeLabel = MODE_LABELS[plan.mode] ?? 'Unknown';
+  const emergencySol = Number(plan.emergencyBucketLamports) / LAMPORTS_PER_SOL;
   const isPausable = plan.state === PlanState.Active;
   const isResumable = plan.state === PlanState.Paused;
-  const emergencySol = Number(plan.emergencyBucketLamports) / LAMPORTS_PER_SOL;
 
   return (
-    <View style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={onBack} style={styles.backBtn}>
-          <Text style={styles.backText}>← Back</Text>
-        </TouchableOpacity>
-        <Text style={styles.title}>Plan Details</Text>
-        <View style={styles.backBtn} />
+    <ScreenShell
+      title="Plan Detail"
+      subtitle={`${modeLabel} mode • owner-side controls for the selected plan account.`}
+      eyebrow="Owner flow / plan detail"
+      onBack={onBack}
+      scroll
+      contentContainerStyle={styles.content}
+    >
+      <Panel tone={stateTone(plan.state)}>
+        <SectionHeading label="Plan status" />
+        <StatusPill label={stateLabel} tone={stateTone(plan.state)} />
+        <Text style={styles.vaultLabel}>Vault Balance</Text>
+        <Text style={styles.statusHeadline}>{vaultBalance.toFixed(4)} SOL</Text>
+        <Text style={styles.statusSubline}>Emergency cap: {emergencySol.toFixed(4)} SOL</Text>
+        <AddressBlock
+          label="Plan account"
+          address={planAddress}
+          helper={`Last heartbeat: ${formatTimeSince(plan.lastHeartbeat)}`}
+        />
+      </Panel>
+
+      <View style={styles.actionsRow}>
+        <PrimaryButton label="Deposit" onPress={() => onDeposit(planAddress)} style={styles.actionButton} />
+        <SecondaryButton
+          label="Emergency cap"
+          tone="danger"
+          badge="Coming Soon"
+          disabled
+          style={styles.actionButton}
+        />
       </View>
 
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        {/* Status Badge */}
-        <View style={styles.statusCard}>
-          <View style={[styles.statusBadge, { backgroundColor: stateColor + '20' }]}>
-            <View style={[styles.statusDot, { backgroundColor: stateColor }]} />
-            <Text style={[styles.statusText, { color: stateColor }]}>{stateLabel}</Text>
-          </View>
-          <Text style={styles.modeLabel}>{modeLabel} Mode</Text>
-        </View>
+      <Panel tone="success">
+        <SectionHeading label="Owner heartbeat" />
+        <Text style={styles.heartbeatValue}>{formatTimeSince(plan.lastHeartbeat)}</Text>
+        <Text style={styles.heartbeatCaption}>
+          Heartbeat refreshes the inactivity timer that protects this plan.
+        </Text>
+        <PrimaryButton label="Send Heartbeat" onPress={() => onHeartbeat(planAddress)} />
+      </Panel>
 
-        {/* Vault */}
-        <View style={styles.vaultCard}>
-          <Text style={styles.vaultLabel}>Vault Balance</Text>
-          <Text style={styles.vaultAmount}>{vaultBalance.toFixed(4)} SOL</Text>
-          <View style={styles.vaultRow}>
-            <Text style={styles.vaultSubtext}>Emergency cap: {emergencySol.toFixed(4)} SOL</Text>
-          </View>
-          <View style={styles.vaultActions}>
-            <TouchableOpacity style={styles.vaultBtn} onPress={() => onDeposit(planAddress)}>
-              <Text style={styles.vaultBtnText}>📥 Deposit</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[styles.vaultBtn, styles.vaultBtnSecondary, styles.comingSoonAction]} disabled>
-              <Text style={styles.vaultBtnSecondaryText}>🆘 Emergency</Text>
-              <Text style={styles.comingSoonBadge}>Coming Soon</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
+      <Panel>
+        <SectionHeading label="Configuration" />
+        <KeyValueRow label="Mode" value={modeLabel} />
+        <KeyValueRow label="Inactivity Window" value={`${Math.round(Number(plan.inactivityDuration) / 86400)} days`} />
+        <KeyValueRow label="Grace Period" value={`${Math.round(Number(plan.gracePeriod) / 86400)} days`} />
+        <KeyValueRow label="Guardian quorum" value={`${guardianSet?.quorum ?? plan.guardianQuorum}`} />
+        <KeyValueRow label="Created" value={new Date(Number(plan.createdAt) * 1000).toLocaleDateString()} />
+      </Panel>
 
-        {/* Heartbeat */}
-        <View style={styles.heartbeatCard}>
-          <View style={styles.heartbeatHeader}>
-            <Text style={styles.heartbeatIcon}>💓</Text>
-            <View>
-              <Text style={styles.heartbeatLabel}>Last Heartbeat</Text>
-              <Text style={styles.heartbeatValue}>{formatTimeSince(plan.lastHeartbeat)}</Text>
-            </View>
-          </View>
-          <TouchableOpacity style={styles.heartbeatBtn} onPress={() => onHeartbeat(planAddress)}>
-            <Text style={styles.heartbeatBtnText}>Send Heartbeat</Text>
-          </TouchableOpacity>
-        </View>
+      <Panel>
+        <SectionHeading label="Beneficiaries" />
+        <AddressBlock
+          label="Primary Beneficiary"
+          address={plan.beneficiary.toBase58()}
+          helper="This wallet can start a claim only after inactivity and grace rules allow it."
+        />
+        <AddressBlock
+          label="Backup Beneficiary"
+          address={plan.backupBeneficiary?.toBase58() ?? null}
+          helper={
+            plan.backupBeneficiary
+              ? 'Backup beneficiary is available if the primary beneficiary cannot act.'
+              : 'No backup beneficiary configured for this plan.'
+          }
+        />
+      </Panel>
 
-        {/* Details Grid */}
-        <Text style={styles.sectionTitle}>Configuration</Text>
-        <View style={styles.detailsGrid}>
-          <DetailRow label="Beneficiary" value={shortenAddress(plan.beneficiary.toBase58())} mono />
-          <DetailRow
-            label="Backup"
-            value={plan.backupBeneficiary ? shortenAddress(plan.backupBeneficiary.toBase58()) : 'None'}
+      <TouchableOpacity activeOpacity={0.82} onPress={() => onGuardians(planAddress)}>
+        <Panel>
+          <SectionHeading label="Guardians" action={<Text style={styles.chevron}>Open</Text>} />
+          <Text style={styles.guardiansValue}>
+            {guardianSet?.guardians.length ?? 0} guardians • quorum {guardianSet?.quorum ?? plan.guardianQuorum}
+          </Text>
+          <Text style={styles.guardiansHelper}>
+            Review addresses, add new guardians, or remove stale ones from the selected plan.
+          </Text>
+        </Panel>
+      </TouchableOpacity>
+
+      <View style={styles.futureActions}>
+        {(isPausable || isResumable) ? (
+          <SecondaryButton
+            label={isPausable ? 'Pause Plan' : 'Resume Plan'}
+            tone={isPausable ? 'warning' : 'success'}
+            onPress={handlePauseResume}
+            disabled={acting}
           />
-          <DetailRow label="Inactivity Window" value={`${Math.round(Number(plan.inactivityDuration) / 86400)} days`} />
-          <DetailRow label="Grace Period" value={`${Math.round(Number(plan.gracePeriod) / 86400)} days`} />
-          <DetailRow label="Created" value={new Date(Number(plan.createdAt) * 1000).toLocaleDateString()} />
-        </View>
-
-        {/* Guardians */}
-        <TouchableOpacity style={styles.guardiansCard} onPress={() => onGuardians(planAddress)}>
-          <View style={styles.guardiansLeft}>
-            <Text style={styles.guardiansIcon}>🛡️</Text>
-            <View>
-              <Text style={styles.guardiansLabel}>Guardians</Text>
-              <Text style={styles.guardiansValue}>
-                {guardianSet?.guardians.length ?? 0} guardians • Quorum: {guardianSet?.quorum ?? plan.guardianQuorum}
-              </Text>
-            </View>
-          </View>
-          <Text style={styles.chevron}>›</Text>
-        </TouchableOpacity>
-
-        {/* Actions */}
-        <Text style={styles.sectionTitle}>Actions</Text>
-        <View style={styles.actionsGrid}>
-          {(isPausable || isResumable) && (
-            <TouchableOpacity
-              style={[styles.actionBtn, acting && styles.actionBtnDisabled]}
-              onPress={handlePauseResume}
-              disabled={acting}
-            >
-              <Text style={styles.actionIcon}>{isPausable ? '⏸' : '▶️'}</Text>
-              <Text style={styles.actionText}>{isPausable ? 'Pause Plan' : 'Resume Plan'}</Text>
-            </TouchableOpacity>
-          )}
-          <TouchableOpacity style={[styles.actionBtn, styles.comingSoonAction]} disabled>
-            <Text style={styles.actionIcon}>✏️</Text>
-            <Text style={styles.actionTextMuted}>Edit Timing</Text>
-            <Text style={styles.comingSoonBadge}>Coming Soon</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.actionBtn, styles.comingSoonAction]} disabled>
-            <Text style={styles.actionIcon}>👤</Text>
-            <Text style={styles.actionTextMuted}>Update Beneficiary</Text>
-            <Text style={styles.comingSoonBadge}>Coming Soon</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.actionBtn, styles.comingSoonAction]} disabled>
-            <Text style={styles.actionIcon}>🗑</Text>
-            <Text style={styles.actionTextMuted}>Close Plan</Text>
-            <Text style={styles.comingSoonBadge}>Coming Soon</Text>
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.bottomSpacer} />
-      </ScrollView>
-    </View>
-  );
-}
-
-function DetailRow({ label, value, mono }: { label: string; value: string; mono?: boolean }): React.JSX.Element {
-  return (
-    <View style={styles.detailRow}>
-      <Text style={styles.detailLabel}>{label}</Text>
-      <Text style={[styles.detailValue, mono && styles.monoText]}>{value}</Text>
-    </View>
+        ) : null}
+        <SecondaryButton label="Edit Timing" badge="Coming Soon" disabled />
+        <SecondaryButton label="Update Beneficiary" badge="Coming Soon" disabled />
+        <SecondaryButton label="Close Plan" badge="Coming Soon" disabled />
+      </View>
+    </ScreenShell>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.colors.background },
-  header: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: theme.spacing.lg, paddingTop: theme.spacing.xl + 20, paddingBottom: theme.spacing.md,
+  content: {
+    gap: theme.spacing.lg,
   },
-  backBtn: { width: 60 },
-  backText: { color: theme.colors.primary, fontSize: theme.fontSize.md },
-  title: { color: theme.colors.text, fontSize: theme.fontSize.xl, fontWeight: theme.fontWeight.bold },
-  content: { flex: 1 },
-  loadingContainer: {
-    flex: 1, alignItems: 'center', justifyContent: 'center', gap: theme.spacing.md,
-  },
-  loadingText: { color: theme.colors.textSecondary, fontSize: theme.fontSize.sm },
-  statusCard: {
-    alignItems: 'center', marginHorizontal: theme.spacing.lg, marginTop: theme.spacing.sm,
-    backgroundColor: theme.colors.surface, borderRadius: theme.borderRadius.lg, padding: theme.spacing.lg,
-  },
-  statusBadge: {
-    flexDirection: 'row', alignItems: 'center',
-    paddingHorizontal: theme.spacing.md, paddingVertical: theme.spacing.xs, borderRadius: 20,
-  },
-  statusDot: { width: 8, height: 8, borderRadius: 4, marginRight: theme.spacing.xs },
-  statusText: { fontSize: theme.fontSize.md, fontWeight: theme.fontWeight.bold },
-  modeLabel: { color: theme.colors.textMuted, fontSize: theme.fontSize.sm, marginTop: theme.spacing.xs },
-  vaultCard: {
-    marginHorizontal: theme.spacing.lg, marginTop: theme.spacing.md,
-    backgroundColor: theme.colors.surface, borderRadius: theme.borderRadius.lg, padding: theme.spacing.lg,
+  loadingState: {
+    minHeight: 180,
     alignItems: 'center',
+    justifyContent: 'center',
+    gap: theme.spacing.md,
   },
-  vaultLabel: { color: theme.colors.textMuted, fontSize: theme.fontSize.sm },
-  vaultAmount: { color: theme.colors.text, fontSize: 36, fontWeight: theme.fontWeight.bold, marginTop: theme.spacing.xs },
-  vaultRow: { marginTop: theme.spacing.xs },
-  vaultSubtext: { color: theme.colors.textMuted, fontSize: theme.fontSize.xs },
-  vaultActions: { flexDirection: 'row', gap: theme.spacing.sm, marginTop: theme.spacing.md, width: '100%' },
-  vaultBtn: {
-    flex: 1, backgroundColor: theme.colors.accent, borderRadius: theme.borderRadius.md,
-    paddingVertical: theme.spacing.sm, alignItems: 'center',
+  loadingText: {
+    color: theme.colors.textSecondary,
+    fontSize: theme.fontSize.sm,
   },
-  vaultBtnText: { color: '#000', fontWeight: theme.fontWeight.bold },
-  vaultBtnSecondary: { backgroundColor: theme.colors.danger + '20' },
-  vaultBtnSecondaryText: { color: theme.colors.danger, fontWeight: theme.fontWeight.bold },
-  heartbeatCard: {
-    marginHorizontal: theme.spacing.lg, marginTop: theme.spacing.md,
-    backgroundColor: theme.colors.surface, borderRadius: theme.borderRadius.lg, padding: theme.spacing.md,
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+  emptyText: {
+    color: theme.colors.textSecondary,
+    fontSize: theme.fontSize.sm,
+    lineHeight: 20,
   },
-  heartbeatHeader: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing.sm },
-  heartbeatIcon: { fontSize: 28 },
-  heartbeatLabel: { color: theme.colors.textMuted, fontSize: theme.fontSize.xs },
-  heartbeatValue: { color: theme.colors.success, fontSize: theme.fontSize.md, fontWeight: theme.fontWeight.semibold },
-  heartbeatBtn: {
-    backgroundColor: theme.colors.success + '20', borderRadius: theme.borderRadius.md,
-    paddingHorizontal: theme.spacing.md, paddingVertical: theme.spacing.sm,
+  statusHeadline: {
+    color: theme.colors.text,
+    fontSize: 34,
+    lineHeight: 40,
+    fontWeight: theme.fontWeight.bold,
   },
-  heartbeatBtnText: { color: theme.colors.success, fontWeight: theme.fontWeight.bold, fontSize: theme.fontSize.sm },
-  sectionTitle: {
-    color: theme.colors.textMuted, fontSize: theme.fontSize.xs, fontWeight: theme.fontWeight.semibold,
-    textTransform: 'uppercase', letterSpacing: 1,
-    marginHorizontal: theme.spacing.lg, marginTop: theme.spacing.lg, marginBottom: theme.spacing.xs,
+  vaultLabel: {
+    color: theme.colors.textMuted,
+    fontSize: theme.fontSize.xs,
+    fontWeight: theme.fontWeight.bold,
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
   },
-  detailsGrid: {
-    backgroundColor: theme.colors.surface, borderRadius: theme.borderRadius.lg,
-    marginHorizontal: theme.spacing.lg, overflow: 'hidden',
+  statusSubline: {
+    color: theme.colors.textSecondary,
+    fontSize: theme.fontSize.sm,
   },
-  detailRow: {
-    flexDirection: 'row', justifyContent: 'space-between',
-    paddingHorizontal: theme.spacing.md, paddingVertical: theme.spacing.sm + 2,
-    borderBottomWidth: 0.5, borderBottomColor: theme.colors.background,
+  actionsRow: {
+    flexDirection: 'row',
+    gap: theme.spacing.md,
   },
-  detailLabel: { color: theme.colors.textMuted, fontSize: theme.fontSize.sm },
-  detailValue: { color: theme.colors.text, fontSize: theme.fontSize.sm, fontWeight: theme.fontWeight.medium },
-  monoText: { fontFamily: 'monospace' },
-  guardiansCard: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    marginHorizontal: theme.spacing.lg, marginTop: theme.spacing.md,
-    backgroundColor: theme.colors.surface, borderRadius: theme.borderRadius.lg, padding: theme.spacing.md,
+  actionButton: {
+    flex: 1,
   },
-  guardiansLeft: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing.sm },
-  guardiansIcon: { fontSize: 24 },
-  guardiansLabel: { color: theme.colors.text, fontSize: theme.fontSize.md, fontWeight: theme.fontWeight.semibold },
-  guardiansValue: { color: theme.colors.textMuted, fontSize: theme.fontSize.xs },
-  chevron: { color: theme.colors.textMuted, fontSize: 24 },
-  actionsGrid: {
-    flexDirection: 'row', flexWrap: 'wrap', gap: theme.spacing.sm,
-    marginHorizontal: theme.spacing.lg,
+  heartbeatValue: {
+    color: theme.colors.text,
+    fontSize: 28,
+    lineHeight: 32,
+    fontWeight: theme.fontWeight.bold,
   },
-  actionBtn: {
-    width: '48%', backgroundColor: theme.colors.surface, borderRadius: theme.borderRadius.md,
-    padding: theme.spacing.md, alignItems: 'center',
+  heartbeatCaption: {
+    color: theme.colors.textSecondary,
+    fontSize: theme.fontSize.sm,
+    lineHeight: 20,
   },
-  actionBtnDisabled: { opacity: 0.5 },
-  actionIcon: { fontSize: 24, marginBottom: theme.spacing.xs },
-  actionText: { color: theme.colors.text, fontSize: theme.fontSize.sm, fontWeight: theme.fontWeight.medium },
-  actionTextMuted: { color: theme.colors.textMuted, fontSize: theme.fontSize.sm, fontWeight: theme.fontWeight.medium },
-  comingSoonAction: { opacity: 0.4 },
-  comingSoonBadge: {
-    color: theme.colors.textMuted, fontSize: 9, fontWeight: theme.fontWeight.semibold,
-    textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 2,
+  chevron: {
+    color: theme.colors.primaryLight,
+    fontSize: theme.fontSize.sm,
+    fontWeight: theme.fontWeight.bold,
+    textTransform: 'uppercase',
   },
-  bottomSpacer: { height: 40 },
+  guardiansValue: {
+    color: theme.colors.text,
+    fontSize: theme.fontSize.lg,
+    fontWeight: theme.fontWeight.bold,
+  },
+  guardiansHelper: {
+    color: theme.colors.textSecondary,
+    fontSize: theme.fontSize.sm,
+    lineHeight: 20,
+  },
+  futureActions: {
+    gap: theme.spacing.md,
+  },
 });

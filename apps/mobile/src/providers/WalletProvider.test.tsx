@@ -9,7 +9,7 @@
  * @jest-environment jsdom
  */
 
-import { renderHook, act } from '@testing-library/react';
+import { renderHook, act, waitFor } from '@testing-library/react';
 import React, { type ReactNode } from 'react';
 import { PublicKey, Transaction } from '@solana/web3.js';
 import { Buffer } from 'buffer';
@@ -36,6 +36,27 @@ beforeEach(() => {
 
 describe('WalletProvider', () => {
   describe('connect()', () => {
+    it('restores persisted session on mount', async () => {
+      const secureStore = require('expo-secure-store');
+      await secureStore.setItemAsync(
+        'thinkxx.wallet.session',
+        JSON.stringify({
+          publicKeyBase58: PublicKey.default.toBase58(),
+          authToken: 'persisted-token',
+          walletUriBase: 'https://persisted-wallet.app',
+          lastConnectedAt: Date.now(),
+        })
+      );
+
+      const { result } = renderHook(() => useWallet(), { wrapper });
+
+      await waitFor(() => {
+        expect(result.current.hydrated).toBe(true);
+        expect(result.current.connected).toBe(true);
+      });
+      expect(result.current.publicKey?.toBase58()).toBe(PublicKey.default.toBase58());
+    });
+
     it('sets connected, publicKey, clears error on success', async () => {
       const { result } = renderHook(() => useWallet(), { wrapper });
 
@@ -96,6 +117,7 @@ describe('WalletProvider', () => {
 
   describe('disconnect()', () => {
     it('calls deauthorize when authToken present and clears all state', async () => {
+      const secureStore = require('expo-secure-store');
       const { result } = renderHook(() => useWallet(), { wrapper });
 
       // Connect first
@@ -113,6 +135,8 @@ describe('WalletProvider', () => {
       expect(result.current.publicKey).toBeNull();
       // deauthorize called via transact
       expect(mockTransact).toHaveBeenCalled();
+      await Promise.resolve();
+      expect(await secureStore.getItemAsync('thinkxx.wallet.session')).toBeNull();
     });
   });
 

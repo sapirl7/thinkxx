@@ -16,7 +16,7 @@
 pnpm run test:sdk
 ```
 
-Runs via `vitest` inside `packages/sdk`. 28 unit tests covering instruction building, PDA derivation, error mapping.
+Runs via `vitest` inside `packages/sdk`. **44 unit tests** covering instruction building, PDA derivation, account parsing, fetch helpers, and error mapping.
 
 ### Mobile Tests
 
@@ -24,7 +24,7 @@ Runs via `vitest` inside `packages/sdk`. 28 unit tests covering instruction buil
 pnpm run test:mobile
 ```
 
-Runs via `jest` inside `apps/mobile`. 7 suites covering wallet connection, state management, component rendering.
+Runs via `jest` inside `apps/mobile`. **10 suites / 70 tests** covering wallet connection, persisted state, owner-side screen rendering, and plan-bound flows.
 
 ### Anchor Tests (bankrun-based)
 

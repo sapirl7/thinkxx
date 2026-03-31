@@ -1,17 +1,32 @@
 import React from 'react';
 import {
-  View,
-  Text,
   StyleSheet,
-  TouchableOpacity,
-  ScrollView,
-  Alert,
+  Text,
+  View,
 } from 'react-native';
+import { PROGRAM_ID } from '@thinkxx/config';
 import { useWallet } from '../providers/WalletProvider';
+import ScreenShell from '../components/ScreenShell';
+import {
+  AddressBlock,
+  Panel,
+  PrimaryButton,
+  SectionHeading,
+  StatusPill,
+  KeyValueRow,
+} from '../components/Primitives';
 import { theme } from '../theme';
 
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const appVersion: string = (require('../../package.json') as { version: string }).version;
+const appManifest = require('../../app.json') as {
+  expo: {
+    version: string;
+    scheme?: string;
+    extra?: { solana?: { cluster?: string } };
+  };
+};
+const appVersion = appManifest.expo.version;
+const appScheme = appManifest.expo.scheme ?? 'thinkxx';
+const appCluster = appManifest.expo.extra?.solana?.cluster ?? 'devnet';
 
 interface SettingsScreenProps {
   onBack: () => void;
@@ -20,11 +35,6 @@ interface SettingsScreenProps {
 export default function SettingsScreen({ onBack }: SettingsScreenProps): React.JSX.Element {
   const { disconnect, shortAddress, walletLabel, rpcEndpoint } = useWallet();
 
-  const handleDisconnect = async (): Promise<void> => {
-    await disconnect();
-  };
-
-  // Shorten RPC endpoint for display
   const displayEndpoint = (() => {
     try {
       const url = new URL(rpcEndpoint);
@@ -35,130 +45,103 @@ export default function SettingsScreen({ onBack }: SettingsScreenProps): React.J
   })();
 
   return (
-    <View style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={onBack} style={styles.backBtn}>
-          <Text style={styles.backText}>← Back</Text>
-        </TouchableOpacity>
-        <Text style={styles.title}>Settings</Text>
-        <View style={styles.backBtn} />
-      </View>
+    <ScreenShell
+      title="Settings"
+      subtitle="Connection metadata, network context, and future automation controls."
+      eyebrow="Owner flow / settings"
+      onBack={onBack}
+      scroll
+      contentContainerStyle={styles.content}
+      footer={<PrimaryButton label="Disconnect Wallet" onPress={() => void disconnect()} tone="secondary" />}
+    >
+      <Panel tone="primary">
+        <SectionHeading label="WALLET" />
+        <KeyValueRow label="Connected wallet" value={shortAddress ?? 'Not Connected'} />
+        <KeyValueRow label="Wallet app" value={walletLabel ?? 'Unknown'} />
+        <KeyValueRow label="Network" value={appCluster.charAt(0).toUpperCase() + appCluster.slice(1)} />
+        <KeyValueRow label="RPC endpoint" value={displayEndpoint} />
+      </Panel>
 
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        {/* Wallet Section */}
-        <Text style={styles.sectionTitle}>WALLET</Text>
-        <View style={styles.card}>
-          <SettingsRow label="Connected Wallet" value={shortAddress ?? 'Not Connected'} />
-          <SettingsRow label="Wallet App" value={walletLabel ?? 'Unknown'} />
-          <SettingsRow label="Network" value="Devnet" />
-          <SettingsRow label="RPC Endpoint" value={displayEndpoint} />
+      <Panel>
+        <SectionHeading label="CURRENT OPERATOR SURFACE" />
+        <View style={styles.featureList}>
+          <View style={styles.featureRow}>
+            <Text style={styles.featureLabel}>Wallet session restore</Text>
+            <StatusPill label="Live" tone="success" />
+          </View>
+          <View style={styles.featureRow}>
+            <Text style={styles.featureLabel}>Plan-bound navigation</Text>
+            <StatusPill label="Live" tone="success" />
+          </View>
+          <View style={styles.featureRow}>
+            <Text style={styles.featureLabel}>Owner heartbeat + deposit</Text>
+            <StatusPill label="Live" tone="success" />
+          </View>
         </View>
+      </Panel>
 
-        {/* Notifications — Coming Soon */}
-        <Text style={styles.sectionTitle}>NOTIFICATIONS</Text>
-        <View style={styles.card}>
-          <ComingSoonRow label="Push Notifications" />
-          <ComingSoonRow label="Telegram Alerts" />
+      <Panel>
+        <SectionHeading label="PLANNED CAPABILITIES" />
+        <View style={styles.featureList}>
+          <View style={styles.featureRow}>
+            <Text style={styles.featureLabel}>Push Notifications</Text>
+            <StatusPill label="Coming Soon" tone="neutral" />
+          </View>
+          <View style={styles.featureRow}>
+            <Text style={styles.featureLabel}>Telegram Alerts</Text>
+            <StatusPill label="Coming Soon" tone="neutral" />
+          </View>
+          <View style={styles.featureRow}>
+            <Text style={styles.featureLabel}>Biometric Lock</Text>
+            <StatusPill label="Coming Soon" tone="neutral" />
+          </View>
+          <View style={styles.featureRow}>
+            <Text style={styles.featureLabel}>Auto-Heartbeat</Text>
+            <StatusPill label="Coming Soon" tone="neutral" />
+          </View>
+          <View style={styles.featureRow}>
+            <Text style={styles.featureLabel}>Sponsored Transactions</Text>
+            <StatusPill label="Coming Soon" tone="neutral" />
+          </View>
+          <View style={styles.featureRow}>
+            <Text style={styles.featureLabel}>Transaction History</Text>
+            <StatusPill label="Coming Soon" tone="neutral" />
+          </View>
         </View>
+      </Panel>
 
-        {/* Security — Coming Soon */}
-        <Text style={styles.sectionTitle}>SECURITY</Text>
-        <View style={styles.card}>
-          <ComingSoonRow label="Biometric Lock" />
-        </View>
-
-        {/* Automation — Coming Soon */}
-        <Text style={styles.sectionTitle}>AUTOMATION</Text>
-        <View style={styles.card}>
-          <ComingSoonRow label="Auto-Heartbeat" />
-          <ComingSoonRow label="Sponsored Transactions" />
-        </View>
-
-        {/* Data — Coming Soon */}
-        <Text style={styles.sectionTitle}>DATA</Text>
-        <View style={styles.card}>
-          <ComingSoonRow label="Transaction History" />
-        </View>
-
-        {/* App Info */}
-        <Text style={styles.sectionTitle}>APP</Text>
-        <View style={styles.card}>
-          <SettingsRow label="Version" value={`v${appVersion}`} />
-          <SettingsRow label="Protocol" value="Lifeline v0.1.0" />
-          <SettingsRow label="Build" value="devnet-only" />
-        </View>
-
-        {/* Actions */}
-        <TouchableOpacity style={styles.disconnectButton} onPress={handleDisconnect}>
-          <Text style={styles.disconnectText}>Disconnect Wallet</Text>
-        </TouchableOpacity>
-
-        <View style={{ height: 40 }} />
-      </ScrollView>
-    </View>
-  );
-}
-
-function SettingsRow({ label, value }: { label: string; value: string }): React.JSX.Element {
-  return (
-    <View style={styles.row}>
-      <Text style={styles.rowLabel}>{label}</Text>
-      <Text style={styles.rowValue}>{value}</Text>
-    </View>
-  );
-}
-
-function ComingSoonRow({ label }: { label: string }): React.JSX.Element {
-  return (
-    <View style={styles.row}>
-      <Text style={styles.rowLabel}>{label}</Text>
-      <View style={styles.comingSoonBadge}>
-        <Text style={styles.comingSoonText}>Coming Soon</Text>
-      </View>
-    </View>
+      <Panel tone="secondary">
+        <SectionHeading label="APP" />
+        <KeyValueRow label="Version" value={`v${appVersion}`} />
+        <KeyValueRow label="Protocol" value="Lifeline v0.1.0" />
+        <KeyValueRow label="Release track" value="devnet-only" />
+        <KeyValueRow label="Identity scheme" value={`${appScheme}://app`} mono />
+        <AddressBlock
+          label="Devnet program"
+          address={PROGRAM_ID.toBase58()}
+          helper="This is the on-chain program the mobile client targets for owner-side actions."
+        />
+      </Panel>
+    </ScreenShell>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.colors.background },
-  header: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: theme.spacing.lg, paddingTop: theme.spacing.xl + 20, paddingBottom: theme.spacing.md,
+  content: {
+    gap: theme.spacing.lg,
   },
-  backBtn: { width: 60 },
-  backText: { color: theme.colors.primary, fontSize: theme.fontSize.md },
-  title: { color: theme.colors.text, fontSize: theme.fontSize.xl, fontWeight: theme.fontWeight.bold },
-  content: { flex: 1, paddingHorizontal: theme.spacing.lg },
-  sectionTitle: {
-    color: theme.colors.textMuted, fontSize: theme.fontSize.xs,
-    fontWeight: theme.fontWeight.semibold, textTransform: 'uppercase',
-    letterSpacing: 1, marginTop: theme.spacing.lg, marginBottom: theme.spacing.sm,
+  featureList: {
+    gap: theme.spacing.md,
   },
-  card: {
-    backgroundColor: theme.colors.surface, borderRadius: theme.borderRadius.lg,
-    overflow: 'hidden',
+  featureRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: theme.spacing.md,
   },
-  row: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    paddingHorizontal: theme.spacing.md, paddingVertical: theme.spacing.sm + 4,
-    borderBottomWidth: 0.5, borderBottomColor: theme.colors.background,
-  },
-  rowLabel: { color: theme.colors.text, fontSize: theme.fontSize.sm },
-  rowValue: { color: theme.colors.textSecondary, fontSize: theme.fontSize.sm },
-  comingSoonBadge: {
-    backgroundColor: theme.colors.textMuted + '20', borderRadius: theme.borderRadius.sm,
-    paddingHorizontal: theme.spacing.sm, paddingVertical: 2,
-  },
-  comingSoonText: {
-    color: theme.colors.textMuted, fontSize: theme.fontSize.xs,
-    fontWeight: theme.fontWeight.semibold,
-  },
-  disconnectButton: {
-    marginTop: theme.spacing.xl, backgroundColor: theme.colors.danger + '15',
-    borderRadius: theme.borderRadius.lg, paddingVertical: theme.spacing.md, alignItems: 'center',
-  },
-  disconnectText: {
-    color: theme.colors.danger, fontSize: theme.fontSize.md, fontWeight: theme.fontWeight.bold,
+  featureLabel: {
+    flex: 1,
+    color: theme.colors.text,
+    fontSize: theme.fontSize.sm,
   },
 });

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback, useMemo, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useCallback, useMemo, ReactNode, useEffect } from 'react';
 import { PublicKey, Connection, Transaction } from '@solana/web3.js';
 import { Buffer } from 'buffer';
 import {
@@ -12,6 +12,11 @@ import {
   SolanaMobileWalletAdapterProtocolError,
   SolanaMobileWalletAdapterProtocolErrorCode,
 } from '@solana-mobile/mobile-wallet-adapter-protocol';
+import {
+  clearWalletSession,
+  loadWalletSession,
+  persistWalletSession,
+} from '../state/wallet-session';
 
 const SOLANA_SIGN_TRANSACTIONS_FEATURE = 'solana:signTransactions';
 
@@ -21,6 +26,7 @@ interface WalletState {
   publicKey: PublicKey | null;
   connecting: boolean;
   error: string | null;
+  hydrated: boolean;
 }
 
 /** Wallet context value */
@@ -55,9 +61,12 @@ interface AuthorizedWalletSession {
 
 const WalletContext = createContext<WalletContextValue | null>(null);
 
+const APP_SCHEME = 'thinkxx';
 const APP_IDENTITY = {
   name: 'Thinkxx',
-  uri: 'https://github.com/sapirl7/thinkxx',
+  // Use the app scheme until a dedicated public app site exists.
+  // This avoids wallet approval sheets presenting a generic github.com host.
+  uri: `${APP_SCHEME}://app`,
 } as const;
 
 const DEVNET_CHAIN = 'solana:devnet';
@@ -138,6 +147,7 @@ export function WalletProvider({ children }: { children: ReactNode }): React.JSX
     publicKey: null,
     connecting: false,
     error: null,
+    hydrated: false,
     authToken: null,
     walletUriBase: null,
   });
@@ -146,6 +156,50 @@ export function WalletProvider({ children }: { children: ReactNode }): React.JSX
     () => new Connection(NETWORK_CONFIG[CLUSTER.DEVNET].rpcEndpoint, 'confirmed'),
     []
   );
+
+  useEffect(() => {
+    let active = true;
+
+    const hydrateSession = async (): Promise<void> => {
+      try {
+        const session = await loadWalletSession();
+        if (!active) {
+          return;
+        }
+
+        const { publicKeyBase58, authToken, walletUriBase } = session;
+
+        if (publicKeyBase58 && authToken) {
+          setState(current => ({
+            ...current,
+            connected: true,
+            publicKey: new PublicKey(publicKeyBase58),
+            authToken,
+            walletUriBase,
+            hydrated: true,
+          }));
+          return;
+        }
+      } catch {
+        // Ignore corrupted persisted session and continue with empty state.
+      }
+
+      if (!active) {
+        return;
+      }
+
+      setState(current => ({
+        ...current,
+        hydrated: true,
+      }));
+    };
+
+    void hydrateSession();
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const authorizeWallet = useCallback(
     async (wallet: Web3MobileWallet): Promise<AuthorizedWalletSession> => {
@@ -162,9 +216,17 @@ export function WalletProvider({ children }: { children: ReactNode }): React.JSX
         connecting: false,
         publicKey: session.publicKey,
         error: null,
+        hydrated: true,
         authToken: session.authToken,
         walletUriBase: session.walletUriBase,
       }));
+
+      await persistWalletSession({
+        publicKeyBase58: session.publicKey.toBase58(),
+        authToken: session.authToken,
+        walletUriBase: session.walletUriBase,
+        lastConnectedAt: Date.now(),
+      });
 
       return session;
     },
@@ -184,6 +246,7 @@ export function WalletProvider({ children }: { children: ReactNode }): React.JSX
       setState(s => ({
         ...s,
         connecting: false,
+        hydrated: true,
         error: toWalletErrorMessage(err),
       }));
     }
@@ -202,11 +265,14 @@ export function WalletProvider({ children }: { children: ReactNode }): React.JSX
       });
     }
 
+    void clearWalletSession();
+
     setState({
       connected: false,
       publicKey: null,
       connecting: false,
       error: null,
+      hydrated: true,
       authToken: null,
       walletUriBase: null,
     });

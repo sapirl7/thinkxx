@@ -32,9 +32,9 @@ beforeEach(() => {
 describe('SettingsScreen', () => {
   it('renders all settings sections', () => {
     const { container } = render(<SettingsScreen onBack={onBack} />);
-    expect(container.textContent).toContain('SECURITY');
-    expect(container.textContent).toContain('NOTIFICATIONS');
     expect(container.textContent).toContain('WALLET');
+    expect(container.textContent).toContain('CURRENT OPERATOR SURFACE');
+    expect(container.textContent).toContain('PLANNED CAPABILITIES');
     expect(container.textContent).toContain('APP');
   });
 
@@ -66,5 +66,11 @@ describe('SettingsScreen', () => {
   it('shows RPC endpoint from provider', () => {
     const { container } = render(<SettingsScreen onBack={onBack} />);
     expect(container.textContent).toContain('api.devnet.solana.com');
+  });
+
+  it('shows app identity scheme and program info', () => {
+    const { container } = render(<SettingsScreen onBack={onBack} />);
+    expect(container.textContent).toContain('thinkxx://app');
+    expect(container.textContent).toContain('Devnet program');
   });
 });
