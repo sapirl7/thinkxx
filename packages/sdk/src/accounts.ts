@@ -88,7 +88,7 @@ function readU8(data: Buffer, offset: number): number {
 function readOptionPubkey(data: Buffer, offset: number): [PublicKey | null, number] {
   const tag = readU8(data, offset);
   if (tag === 0) {
-    return [null, 1 + 32]; // None — Borsh still allocates 32 bytes in fixed-size accounts
+    return [null, 1];
   }
   return [readPubkey(data, offset + 1), 1 + 32];
 }

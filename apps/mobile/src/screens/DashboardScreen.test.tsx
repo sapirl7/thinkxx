@@ -13,6 +13,7 @@ import { resetMobileMocks } from '../../test/setup';
 
 const mockPublicKeyDefault = PublicKey.default;
 const mockGetBalance = jest.fn().mockResolvedValue(5_000_000_000);
+const mockFetchPlansByOwner = jest.fn().mockResolvedValue([]);
 
 jest.mock('../providers/WalletProvider', () => ({
   useWallet: () => ({
@@ -32,7 +33,7 @@ jest.mock('@thinkxx/sdk', () => {
   const actual = jest.requireActual('@thinkxx/sdk');
   return {
     ...actual,
-    fetchPlansByOwner: jest.fn().mockResolvedValue([]),
+    fetchPlansByOwner: (...args: unknown[]) => mockFetchPlansByOwner(...args),
   };
 });
 
@@ -62,6 +63,7 @@ beforeEach(() => {
   mockOnPlanDetail.mockReset();
   mockOnDeposit.mockReset();
   mockGetBalance.mockReset().mockResolvedValue(5_000_000_000);
+  mockFetchPlansByOwner.mockReset().mockResolvedValue([]);
 });
 
 describe('DashboardScreen', () => {
@@ -102,6 +104,19 @@ describe('DashboardScreen', () => {
       () => expect(container.textContent).toContain('Plan created, syncing...'),
       { timeout: 3000 },
     );
+  });
+
+  it('shows sync issue instead of empty state on RPC rate limit', async () => {
+    mockFetchPlansByOwner.mockRejectedValue(
+      new Error('429 connection rate limits exceeded')
+    );
+
+    const { container } = render(<DashboardScreen {...defaultProps} />);
+    await waitFor(
+      () => expect(container.textContent).toContain('Unable to sync plans'),
+      { timeout: 3000 },
+    );
+    expect(container.textContent).not.toContain('No plans yet');
   });
 
   // ── Pure logic tests (no rendering) ──

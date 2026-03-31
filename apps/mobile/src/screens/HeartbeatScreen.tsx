@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { useWallet } from '../providers/WalletProvider';
 import ScreenShell from '../components/ScreenShell';
+import { retryRpcRead, toRpcReadMessage } from '../lib/rpc';
 import {
   AddressBlock,
   Panel,
@@ -31,6 +32,9 @@ type PlanValidationState =
   | { status: 'invalid'; message: string };
 
 function formatTimeSince(date: Date): string {
+  if (Number.isNaN(date.getTime())) {
+    return 'Heartbeat unavailable';
+  }
   const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
   if (seconds < 60) return `${seconds}s ago`;
   if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
@@ -89,7 +93,7 @@ export default function HeartbeatScreen({ onBack, planAddress }: HeartbeatScreen
     });
 
     try {
-      const planData = await fetchPlan(connection, planPda);
+      const planData = await retryRpcRead(() => fetchPlan(connection, planPda));
       if (!planData) {
         setPlan(null);
         setValidationState({
@@ -126,7 +130,7 @@ export default function HeartbeatScreen({ onBack, planAddress }: HeartbeatScreen
       setPlan(null);
       setValidationState({
         status: 'invalid',
-        message: err instanceof Error ? err.message : 'Failed to validate selected plan.',
+        message: toRpcReadMessage(err, 'Failed to validate selected plan.'),
       });
     }
   }, [connected, connection, planAddress, publicKey]);
@@ -182,7 +186,11 @@ export default function HeartbeatScreen({ onBack, planAddress }: HeartbeatScreen
     }
   }, [connection, hydratePlanState, planAddress, publicKey, signAndSendTransaction, validationState.status]);
 
-  const heartbeatDate = plan ? new Date(Number(plan.lastHeartbeat) * 1000) : null;
+  const heartbeatTimestamp = plan ? Number(plan.lastHeartbeat) : 0;
+  const heartbeatDate =
+    plan && Number.isFinite(heartbeatTimestamp) && heartbeatTimestamp > 0
+      ? new Date(heartbeatTimestamp * 1000)
+      : null;
   const canSendHeartbeat = validationState.status === 'ready' && Boolean(planAddress) && !sending;
   const tone =
     validationState.status === 'ready'

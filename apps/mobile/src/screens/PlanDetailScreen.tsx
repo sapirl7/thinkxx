@@ -20,6 +20,7 @@ import {
 import type { ParsedGuardianSet, PlanAccountData } from '@thinkxx/sdk';
 import { useWallet } from '../providers/WalletProvider';
 import ScreenShell from '../components/ScreenShell';
+import { readBalanceWithRetry, retryRpcRead, toRpcReadMessage } from '../lib/rpc';
 import {
   AddressBlock,
   KeyValueRow,
@@ -72,7 +73,15 @@ function stateTone(state: number): 'primary' | 'success' | 'warning' | 'danger' 
 }
 
 function formatTimeSince(timestamp: bigint): string {
+  const value = Number(timestamp);
+  if (!Number.isFinite(value) || value <= 0) {
+    return 'No heartbeat yet';
+  }
+
   const seconds = Math.floor(Date.now() / 1000) - Number(timestamp);
+  if (!Number.isFinite(seconds) || seconds < 0) {
+    return 'Heartbeat unavailable';
+  }
   if (seconds < 60) return `${seconds}s ago`;
   if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
   if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
@@ -92,32 +101,38 @@ export default function PlanDetailScreen({
   const [vaultBalance, setVaultBalance] = useState<number>(0);
   const [loading, setLoading] = useState(true);
   const [acting, setActing] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const planPda = new PublicKey(planAddress);
 
   const fetchData = useCallback(async () => {
+    setLoadError(null);
+
     try {
-      const planData = await fetchPlan(connection, planPda);
+      const planData = await retryRpcRead(() => fetchPlan(connection, planPda));
       if (!planData) {
-        Alert.alert('Not Found', 'Plan account not found on devnet.');
-        onBack();
+        setPlan(null);
+        setGuardianSet(null);
+        setLoadError('Plan account not found on devnet.');
         return;
       }
       setPlan(planData);
 
       const [gsPda] = deriveGuardianSetPda(planPda);
-      const gs = await fetchGuardianSet(connection, gsPda);
+      const gs = await retryRpcRead(() => fetchGuardianSet(connection, gsPda));
       setGuardianSet(gs);
 
       const [solVaultPda] = deriveSolVaultPda(planPda);
-      const vaultLamports = await connection.getBalance(solVaultPda, 'confirmed');
+      const vaultLamports = await readBalanceWithRetry(connection, solVaultPda, 'confirmed');
       setVaultBalance(vaultLamports / LAMPORTS_PER_SOL);
     } catch (err) {
-      Alert.alert('Error', err instanceof Error ? err.message : 'Failed to fetch plan');
+      setPlan(null);
+      setGuardianSet(null);
+      setLoadError(toRpcReadMessage(err, 'Failed to fetch plan.'));
     } finally {
       setLoading(false);
     }
-  }, [connection, onBack, planPda]);
+  }, [connection, planPda]);
 
   useEffect(() => {
     setLoading(true);
@@ -170,8 +185,11 @@ export default function PlanDetailScreen({
         onBack={onBack}
       >
         <Panel tone="danger">
-          <SectionHeading label="Plan not found" />
-          <Text style={styles.emptyText}>Return to Dashboard and sync plans again.</Text>
+          <SectionHeading
+            label="Plan not found"
+            action={<SecondaryButton label="Retry" tone="danger" onPress={() => void fetchData()} />}
+          />
+          <Text style={styles.emptyText}>{loadError ?? 'Return to Dashboard and sync plans again.'}</Text>
         </Panel>
       </ScreenShell>
     );
@@ -231,7 +249,14 @@ export default function PlanDetailScreen({
         <KeyValueRow label="Inactivity Window" value={`${Math.round(Number(plan.inactivityDuration) / 86400)} days`} />
         <KeyValueRow label="Grace Period" value={`${Math.round(Number(plan.gracePeriod) / 86400)} days`} />
         <KeyValueRow label="Guardian quorum" value={`${guardianSet?.quorum ?? plan.guardianQuorum}`} />
-        <KeyValueRow label="Created" value={new Date(Number(plan.createdAt) * 1000).toLocaleDateString()} />
+        <KeyValueRow
+          label="Created"
+          value={
+            Number.isFinite(Number(plan.createdAt)) && Number(plan.createdAt) > 0
+              ? new Date(Number(plan.createdAt) * 1000).toLocaleDateString()
+              : 'Unknown'
+          }
+        />
       </Panel>
 
       <Panel>

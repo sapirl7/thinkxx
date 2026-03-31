@@ -13,6 +13,7 @@ import { resetMobileMocks, mockAlert } from '../../test/setup';
 // Mock useWallet
 const mockSignAndSendTransaction = jest.fn().mockResolvedValue('mock-sig');
 const mockPublicKey = PublicKey.default;
+const mockFetchPlan = jest.fn();
 
 jest.mock('../providers/WalletProvider', () => ({
   useWallet: () => ({
@@ -31,10 +32,7 @@ jest.mock('@thinkxx/sdk', () => ({
       planPda: mockPublicKey,
     }),
   })),
-  fetchPlan: jest.fn().mockResolvedValue({
-    owner: jest.requireActual('@solana/web3.js').PublicKey.default,
-    planId: 1n,
-  }),
+  fetchPlan: (...args: unknown[]) => mockFetchPlan(...args),
   PlanMode: { Medical: 0, LegalRisk: 1, Legacy: 2 },
 }));
 
@@ -48,6 +46,10 @@ beforeEach(() => {
   onBack.mockReset();
   onCreated.mockReset();
   mockSignAndSendTransaction.mockReset().mockResolvedValue('mock-sig');
+  mockFetchPlan.mockReset().mockResolvedValue({
+    owner: jest.requireActual('@solana/web3.js').PublicKey.default,
+    planId: 1n,
+  });
 });
 
 describe('CreatePlanScreen', () => {
@@ -89,6 +91,33 @@ describe('CreatePlanScreen', () => {
     await waitFor(() => {
       expect(onCreated).toHaveBeenCalledWith(mockPublicKey.toBase58());
     });
+  });
+
+  it('treats 429 after submit as pending sync instead of hard failure', async () => {
+    mockFetchPlan.mockRejectedValue(
+      new Error('failed to get info about account 111: Error: 429 : {"message":"Connection rate limits exceeded"}')
+    );
+
+    const { getByText, getByPlaceholderText, getAllByText } = render(
+      <CreatePlanScreen onBack={onBack} onCreated={onCreated} />
+    );
+
+    fireEvent.click(getByText('Medical'));
+    fireEvent.change(getByPlaceholderText('Solana public key (base58)'), {
+      target: { value: mockPublicKey.toBase58() },
+    });
+    const createButtons = getAllByText('Create Plan');
+    fireEvent.click(createButtons[createButtons.length - 1]);
+
+    await waitFor(() => {
+      expect(onCreated).toHaveBeenCalledWith(mockPublicKey.toBase58());
+      expect(mockAlert).toHaveBeenCalledWith(
+        'Plan Submitted',
+        expect.stringContaining('RPC sync is delayed'),
+        expect.any(Array),
+        { cancelable: false }
+      );
+    }, { timeout: 5000 });
   });
 
   // ── Timing Validation (tested via extracted logic) ──

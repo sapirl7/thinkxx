@@ -57,8 +57,7 @@ function writePubkey(buf: Buffer, offset: number, key: PublicKey): number {
 function writeOptionPubkey(buf: Buffer, offset: number, key: PublicKey | null): number {
   if (key === null) {
     buf.writeUInt8(0, offset);
-    // Fill remaining 32 bytes with zeros (already zero in alloc)
-    return offset + 1 + 32;
+    return offset + 1;
   }
   buf.writeUInt8(1, offset);
   key.toBuffer().copy(buf, offset + 1);
@@ -201,6 +200,9 @@ describe('parsePlanAccount', () => {
     const buf = buildPlanBuffer({ backup: null });
     const plan = parsePlanAccount(buf);
     expect(plan.backupBeneficiary).toBeNull();
+    expect(plan.lastHeartbeat).toBe(1710000000n);
+    expect(plan.createdAt).toBe(1709000000n);
+    expect(plan.updatedAt).toBe(1710000000n);
   });
 
   it('parses Draft state', () => {

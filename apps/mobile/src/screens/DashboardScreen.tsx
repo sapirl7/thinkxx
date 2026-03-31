@@ -12,6 +12,7 @@ import { fetchPlansByOwner, PlanMode, PlanState } from '@thinkxx/sdk';
 import type { PlanWithAddress } from '@thinkxx/sdk';
 import { useWallet } from '../providers/WalletProvider';
 import ScreenShell from '../components/ScreenShell';
+import { readBalanceWithRetry, retryRpcRead, toRpcReadMessage } from '../lib/rpc';
 import {
   AddressBlock,
   MetricPanel,
@@ -67,10 +68,13 @@ function stateTone(state: number): 'primary' | 'success' | 'warning' | 'danger' 
 
 function formatHeartbeat(timestamp: bigint): string {
   const millis = Number(timestamp) * 1000;
-  if (millis <= 0) {
+  if (millis <= 0 || !Number.isFinite(millis)) {
     return 'No heartbeat yet';
   }
   const date = new Date(millis);
+  if (Number.isNaN(date.getTime())) {
+    return 'Heartbeat unavailable';
+  }
   return `${date.toLocaleDateString()} • ${date.toLocaleTimeString()}`;
 }
 
@@ -163,19 +167,26 @@ export default function DashboardScreen({
     }
 
     setError(null);
-    try {
-      const [lamports, fetchedPlans] = await Promise.all([
-        connection.getBalance(publicKey, 'confirmed'),
-        fetchPlansByOwner(connection, publicKey),
-      ]);
-      setBalance(lamports / LAMPORTS_PER_SOL);
-      setPlans(fetchedPlans);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch data');
-      setBalance(null);
-    } finally {
-      setLoading(false);
+    const [balanceResult, plansResult] = await Promise.allSettled([
+      readBalanceWithRetry(connection, publicKey, 'confirmed'),
+      retryRpcRead(() => fetchPlansByOwner(connection, publicKey)),
+    ]);
+
+    if (balanceResult.status === 'fulfilled') {
+      setBalance(balanceResult.value / LAMPORTS_PER_SOL);
     }
+
+    if (plansResult.status === 'fulfilled') {
+      setPlans(plansResult.value);
+    }
+
+    if (balanceResult.status === 'rejected' || plansResult.status === 'rejected') {
+      const firstError =
+        balanceResult.status === 'rejected' ? balanceResult.reason : plansResult.status === 'rejected' ? plansResult.reason : null;
+      setError(toRpcReadMessage(firstError, 'Failed to fetch dashboard data.'));
+    }
+
+    setLoading(false);
   }, [connection, publicKey]);
 
   useEffect(() => {
@@ -193,6 +204,7 @@ export default function DashboardScreen({
   const firstPlanAddress = plans[0]?.address.toBase58() ?? fallbackPlanAddress;
   const hasResolvedPlan = Boolean(firstPlanAddress);
   const showPendingSync = !loading && plans.length === 0 && Boolean(firstPlanAddress);
+  const showSyncIssueEmptyState = !loading && plans.length === 0 && !showPendingSync && Boolean(error);
   const prioritizedPlans = selectedPlanAddress
     ? [...plans].sort((left, right) => {
         const leftSelected = left.address.toBase58() === selectedPlanAddress ? 1 : 0;
@@ -268,6 +280,17 @@ export default function DashboardScreen({
               tone="secondary"
               onPress={firstPlanAddress ? () => onPlanDetail(firstPlanAddress) : undefined}
             />
+          </Panel>
+        ) : showSyncIssueEmptyState ? (
+          <Panel tone="danger">
+            <SectionHeading
+              label="Unable to sync plans"
+              action={<SecondaryButton label="Retry" tone="danger" onPress={onRefresh} />}
+            />
+            <Text style={styles.emptyTitle}>RPC sync issue</Text>
+            <Text style={styles.emptyBody}>
+              Devnet did not return a stable plan list yet. Avoid creating another plan until this screen refreshes.
+            </Text>
           </Panel>
         ) : plans.length === 0 ? (
           <Panel tone="neutral">

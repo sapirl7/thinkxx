@@ -41,6 +41,8 @@ jest.mock('@thinkxx/sdk', () => {
   const { PublicKey: PK } = jest.requireActual('@solana/web3.js');
   return {
     ...actual,
+    deriveGuardianSetPda: jest.fn().mockReturnValue([PK.default, 253]),
+    deriveSolVaultPda: jest.fn().mockReturnValue([PK.default, 252]),
     fetchPlan: jest.fn().mockResolvedValue({
       owner: PK.default,
       planId: 1n,

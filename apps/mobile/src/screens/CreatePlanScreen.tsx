@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { useWallet } from '../providers/WalletProvider';
 import ScreenShell from '../components/ScreenShell';
+import { isRpcRateLimitError, toRpcReadMessage } from '../lib/rpc';
 import {
   AddressBlock,
   KeyValueRow,
@@ -78,27 +79,31 @@ const MAX_INACTIVITY_DAYS = 1_825;
 const MIN_GRACE_HOURS = 1;
 const MIN_GRACE_DAYS = MIN_GRACE_HOURS / 24;
 const MAX_GRACE_DAYS = 90;
-const PLAN_FETCH_RETRIES = 5;
-const PLAN_FETCH_DELAY_MS = 400;
+const PLAN_FETCH_RETRIES = 3;
+const PLAN_FETCH_DELAY_MS = 800;
 
 async function waitForPlanConfirmation(
   connection: Connection,
   planAddress: PublicKey,
-): Promise<void> {
+): Promise<'confirmed' | 'pending_sync'> {
   for (let attempt = 0; attempt < PLAN_FETCH_RETRIES; attempt += 1) {
-    const plan = await fetchPlan(connection, planAddress);
-    if (plan) {
-      return;
+    try {
+      const plan = await fetchPlan(connection, planAddress);
+      if (plan) {
+        return 'confirmed';
+      }
+    } catch (error) {
+      if (!isRpcRateLimitError(error)) {
+        throw error;
+      }
     }
 
     await new Promise(resolve => {
-      setTimeout(resolve, PLAN_FETCH_DELAY_MS);
+      setTimeout(resolve, PLAN_FETCH_DELAY_MS * (attempt + 1));
     });
   }
 
-  throw new Error(
-    'Plan transaction confirmed, but the new plan is not visible on-chain yet. Pull to refresh the dashboard in a few seconds.',
-  );
+  return 'pending_sync';
 }
 
 function ModeCard({
@@ -228,6 +233,8 @@ export default function CreatePlanScreen({ onBack, onCreated }: CreatePlanScreen
     }
 
     setCreationStage('awaiting_wallet');
+    let signature: string | null = null;
+    let planAddressBase58: string | null = null;
 
     try {
       const client = new ThinkxxClient(connection);
@@ -241,24 +248,44 @@ export default function CreatePlanScreen({ onBack, onCreated }: CreatePlanScreen
         guardianQuorum: 0,
       });
 
-      const signature = await signAndSendTransaction(new Transaction().add(instruction));
+      planAddressBase58 = planPda.toBase58();
+      signature = await signAndSendTransaction(new Transaction().add(instruction));
+      onCreated(planAddressBase58);
       setCreationStage('confirming_chain');
-      await waitForPlanConfirmation(connection, planPda);
-      onCreated(planPda.toBase58());
+      const syncState = await waitForPlanConfirmation(connection, planPda);
 
-      Alert.alert(
-        'Plan Created',
-        `Plan address:\n${planPda.toBase58()}\n\nSignature:\n${signature}`,
-        [{ text: 'Continue' }],
-        { cancelable: false },
-      );
+      if (syncState === 'confirmed') {
+        Alert.alert(
+          'Plan Created',
+          `Plan address:\n${planPda.toBase58()}\n\nSignature:\n${signature}`,
+          [{ text: 'Continue' }],
+          { cancelable: false },
+        );
+      } else {
+        Alert.alert(
+          'Plan Submitted',
+          `Transaction signature:\n${signature}\n\nThe plan request reached devnet, but RPC sync is delayed. Open Dashboard and pull to refresh in a few seconds.`,
+          [{ text: 'Continue' }],
+          { cancelable: false },
+        );
+      }
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : String(err);
+      if (signature && planAddressBase58) {
+        Alert.alert(
+          'Plan Submitted',
+          `Plan address:\n${planAddressBase58}\n\nTransaction signature:\n${signature}\n\nThe transaction was submitted, but devnet state sync is delayed. Open Dashboard and pull to refresh in a few seconds.`,
+          [{ text: 'Continue' }],
+          { cancelable: false },
+        );
+        return;
+      }
+
+      const errorMessage = toRpcReadMessage(err, 'Failed to create plan.');
       const errorName = err instanceof Error ? err.constructor.name : typeof err;
       console.error('[CreatePlan] Failed:', errorName, errorMessage, err);
       Alert.alert(
         'Create Plan Failed',
-        `${errorName}: ${errorMessage}`,
+        `${errorMessage}`,
       );
     } finally {
       setCreationStage('editing');

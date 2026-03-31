@@ -11,6 +11,7 @@ import { LAMPORTS_PER_SOL, PublicKey, Transaction } from '@solana/web3.js';
 import { deriveSolVaultPda, ThinkxxClient } from '@thinkxx/sdk';
 import { useWallet } from '../providers/WalletProvider';
 import ScreenShell from '../components/ScreenShell';
+import { readBalanceWithRetry } from '../lib/rpc';
 import {
   AddressBlock,
   MetricPanel,
@@ -45,12 +46,12 @@ export default function DepositScreen({
       if (!publicKey) return;
       try {
         const [walletLamports, [solVaultPda]] = await Promise.all([
-          connection.getBalance(publicKey, 'confirmed'),
+          readBalanceWithRetry(connection, publicKey, 'confirmed'),
           Promise.resolve(deriveSolVaultPda(planPda)),
         ]);
         setWalletBalance(walletLamports / LAMPORTS_PER_SOL);
 
-        const vaultLamports = await connection.getBalance(solVaultPda, 'confirmed');
+        const vaultLamports = await readBalanceWithRetry(connection, solVaultPda, 'confirmed');
         setVaultBalance(vaultLamports / LAMPORTS_PER_SOL);
       } catch {
         // Ignore balance fetch errors.
