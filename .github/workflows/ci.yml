@@ -53,9 +53,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - uses: coral-xyz/setup-anchor@v3
-        with:
-          anchor-version: ${{ env.ANCHOR_VERSION }}
+      - name: Install Anchor CLI
+        run: |
+          cargo install --git https://github.com/coral-xyz/anchor avm --force
+          avm install ${{ env.ANCHOR_VERSION }}
+          avm use ${{ env.ANCHOR_VERSION }}
       - run: anchor build
 
   sdk-test:
@@ -96,9 +98,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - uses: coral-xyz/setup-anchor@v3
-        with:
-          anchor-version: ${{ env.ANCHOR_VERSION }}
+      - name: Install Anchor CLI
+        run: |
+          cargo install --git https://github.com/coral-xyz/anchor avm --force
+          avm install ${{ env.ANCHOR_VERSION }}
+          avm use ${{ env.ANCHOR_VERSION }}
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
