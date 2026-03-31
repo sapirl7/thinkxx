@@ -65,11 +65,14 @@ export const defaultCapabilities = {
 
 // ── Reset all mocks ─────────────────────────────────────────────
 export function resetMobileMocks(): void {
+  const mockSignedTransaction = new Transaction();
+  jest.spyOn(mockSignedTransaction, 'serialize').mockReturnValue(Buffer.alloc(100));
+
   mockWallet.authorize.mockReset().mockResolvedValue(defaultAuthResponse);
   mockWallet.deauthorize.mockReset().mockResolvedValue(undefined);
   mockWallet.getCapabilities.mockReset().mockResolvedValue(defaultCapabilities);
   mockWallet.signAndSendTransactions.mockReset().mockResolvedValue(['mock-signature-sas']);
-  mockWallet.signTransactions.mockReset().mockResolvedValue([new Transaction()]);
+  mockWallet.signTransactions.mockReset().mockResolvedValue([mockSignedTransaction]);
 
   mockTransact.mockReset().mockImplementation(async (cb: any) => cb(mockWallet));
 
@@ -240,6 +243,7 @@ jest.mock('react-native', () => {
     },
     Alert: { alert: (...args: any[]) => mockAlert(...args) },
     Dimensions: { get: jest.fn(() => ({ width: 375, height: 812 })) },
+    StatusBar: { currentHeight: 24 },
     Platform: { OS: 'android', select: jest.fn((m: any) => m.android ?? m.default) },
   };
 });

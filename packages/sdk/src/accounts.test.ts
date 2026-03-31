@@ -15,6 +15,7 @@ import {
   parseClaimAccount,
 } from './accounts';
 import type { ParsedGuardianSet, ParsedClaim } from './accounts';
+import { readI64LE, readU64LE, writeI64LE, writeU64LE } from './bytes';
 
 // ─── Test Fixtures ───────────────────────────────────────────────────────────
 
@@ -39,12 +40,12 @@ function writeU8(buf: Buffer, offset: number, value: number): number {
 }
 
 function writeI64(buf: Buffer, offset: number, value: bigint): number {
-  buf.writeBigInt64LE(value, offset);
+  writeI64LE(buf, offset, value);
   return offset + 8;
 }
 
 function writeU64(buf: Buffer, offset: number, value: bigint): number {
-  buf.writeBigUInt64LE(value, offset);
+  writeU64LE(buf, offset, value);
   return offset + 8;
 }
 
@@ -316,5 +317,31 @@ describe('parseClaimAccount', () => {
     const buf = buildClaimBuffer(ClaimState.Pending, [], []);
     buf[0] = 0xff;
     expect(() => parseClaimAccount(buf)).toThrow('Invalid ClaimAccount discriminator');
+  });
+
+  it('parses accounts without Buffer BigInt helpers', () => {
+    const originalReadU64 = Buffer.prototype.readBigUInt64LE;
+    const originalReadI64 = Buffer.prototype.readBigInt64LE;
+    const planBuffer = buildPlanBuffer({ planId: 77n, inactivityDuration: -1n });
+    const claimBuffer = buildClaimBuffer(ClaimState.Pending, [GUARDIAN_1], []);
+
+    Object.defineProperties(Buffer.prototype, {
+      readBigUInt64LE: { value: undefined, configurable: true, writable: true },
+      readBigInt64LE: { value: undefined, configurable: true, writable: true },
+    });
+
+    try {
+      const plan = parsePlanAccount(planBuffer);
+      const claim = parseClaimAccount(claimBuffer);
+
+      expect(plan.planId).toBe(readU64LE(planBuffer, 40));
+      expect(plan.inactivityDuration).toBe(-1n);
+      expect(claim.startedAt).toBe(readI64LE(claimBuffer, 73));
+    } finally {
+      Object.defineProperties(Buffer.prototype, {
+        readBigUInt64LE: { value: originalReadU64, configurable: true, writable: true },
+        readBigInt64LE: { value: originalReadI64, configurable: true, writable: true },
+      });
+    }
   });
 });

@@ -253,7 +253,13 @@ export default function CreatePlanScreen({ onBack, onCreated }: CreatePlanScreen
         { cancelable: false },
       );
     } catch (err) {
-      Alert.alert('Create Plan Failed', err instanceof Error ? err.message : 'Failed to create plan');
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      const errorName = err instanceof Error ? err.constructor.name : typeof err;
+      console.error('[CreatePlan] Failed:', errorName, errorMessage, err);
+      Alert.alert(
+        'Create Plan Failed',
+        `${errorName}: ${errorMessage}`,
+      );
     } finally {
       setCreationStage('editing');
     }

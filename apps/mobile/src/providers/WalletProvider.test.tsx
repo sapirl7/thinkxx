@@ -144,43 +144,16 @@ describe('WalletProvider', () => {
     it('throws when not connected', async () => {
       const { result } = renderHook(() => useWallet(), { wrapper });
 
-      await expect(
-        act(async () => {
-          await result.current.signAndSendTransaction(new Transaction());
-        }),
-      ).rejects.toThrow('Connect your wallet first');
+      await waitFor(() => {
+        expect(result.current.hydrated).toBe(true);
+      });
+
+      await expect(result.current.signAndSendTransaction(new Transaction())).rejects.toThrow(
+        'Connect your wallet first'
+      );
     });
 
-    it('uses signAndSendTransactions when supported', async () => {
-      const { result } = renderHook(() => useWallet(), { wrapper });
-
-      await act(async () => {
-        await result.current.connect();
-      });
-
-      let signature: string | undefined;
-      await act(async () => {
-        signature = await result.current.signAndSendTransaction(new Transaction());
-      });
-
-      expect(signature).toBe('mock-signature-sas');
-      expect(mockWallet.signAndSendTransactions).toHaveBeenCalled();
-      expect(mockConnection.confirmTransaction).toHaveBeenCalled();
-    });
-
-    it('falls back to signTransactions + sendRawTransaction', async () => {
-      // getCapabilities returns fallback-only for ALL transact calls
-      mockWallet.getCapabilities.mockResolvedValue({
-        supports_sign_and_send_transactions: false,
-        features: ['solana:signTransactions'],
-      });
-
-      // signTransactions must return something serializable
-      const mockSignedTx = new Transaction();
-      // Patch serialize since the TX has no real signatures
-      jest.spyOn(mockSignedTx, 'serialize').mockReturnValue(Buffer.alloc(100));
-      mockWallet.signTransactions.mockResolvedValue([mockSignedTx]);
-
+    it('prefers signTransactions when supported', async () => {
       const { result } = renderHook(() => useWallet(), { wrapper });
 
       await act(async () => {
@@ -194,7 +167,30 @@ describe('WalletProvider', () => {
 
       expect(signature).toBe('mock-signature-sendraw');
       expect(mockWallet.signTransactions).toHaveBeenCalled();
-      expect(mockConnection.sendRawTransaction).toHaveBeenCalled();
+      expect(mockWallet.signAndSendTransactions).not.toHaveBeenCalled();
+      expect(mockConnection.confirmTransaction).toHaveBeenCalled();
+    });
+
+    it('falls back to signAndSendTransactions when signTransactions feature is absent', async () => {
+      mockWallet.getCapabilities.mockResolvedValue({
+        supports_sign_and_send_transactions: true,
+        features: [],
+      });
+
+      const { result } = renderHook(() => useWallet(), { wrapper });
+
+      await act(async () => {
+        await result.current.connect();
+      });
+
+      let signature: string | undefined;
+      await act(async () => {
+        signature = await result.current.signAndSendTransaction(new Transaction());
+      });
+
+      expect(signature).toBe('mock-signature-sas');
+      expect(mockWallet.signAndSendTransactions).toHaveBeenCalled();
+      expect(mockWallet.signTransactions).not.toHaveBeenCalled();
     });
 
     it('throws when wallet supports neither signing method', async () => {
@@ -209,15 +205,15 @@ describe('WalletProvider', () => {
         await result.current.connect();
       });
 
-      await expect(
-        act(async () => {
-          await result.current.signAndSendTransaction(new Transaction());
-        }),
-      ).rejects.toThrow('does not support transaction submission');
+      await act(async () => {
+        await expect(result.current.signAndSendTransaction(new Transaction())).rejects.toThrow(
+          'does not support transaction submission'
+        );
+      });
     });
 
     it('throws when no signature returned', async () => {
-      mockWallet.signAndSendTransactions.mockResolvedValue([undefined]);
+      mockWallet.signTransactions.mockResolvedValue([undefined]);
 
       const { result } = renderHook(() => useWallet(), { wrapper });
 
@@ -225,11 +221,11 @@ describe('WalletProvider', () => {
         await result.current.connect();
       });
 
-      await expect(
-        act(async () => {
-          await result.current.signAndSendTransaction(new Transaction());
-        }),
-      ).rejects.toThrow('did not return a transaction signature');
+      await act(async () => {
+        await expect(result.current.signAndSendTransaction(new Transaction())).rejects.toThrow(
+          'did not return a signed transaction'
+        );
+      });
     });
 
     it('throws when confirmTransaction returns err', async () => {
@@ -243,11 +239,11 @@ describe('WalletProvider', () => {
         await result.current.connect();
       });
 
-      await expect(
-        act(async () => {
-          await result.current.signAndSendTransaction(new Transaction());
-        }),
-      ).rejects.toThrow('Transaction failed');
+      await act(async () => {
+        await expect(result.current.signAndSendTransaction(new Transaction())).rejects.toThrow(
+          'Transaction failed'
+        );
+      });
     });
 
     it('maps ERROR_NOT_SUBMITTED to human-readable message', async () => {
@@ -269,11 +265,11 @@ describe('WalletProvider', () => {
         ),
       );
 
-      await expect(
-        act(async () => {
-          await result.current.signAndSendTransaction(new Transaction());
-        }),
-      ).rejects.toThrow('did not submit');
+      await act(async () => {
+        await expect(result.current.signAndSendTransaction(new Transaction())).rejects.toThrow(
+          'did not submit'
+        );
+      });
     });
 
     it('maps ERROR_NOT_SIGNED to human-readable message', async () => {
@@ -293,11 +289,11 @@ describe('WalletProvider', () => {
         ),
       );
 
-      await expect(
-        act(async () => {
-          await result.current.signAndSendTransaction(new Transaction());
-        }),
-      ).rejects.toThrow('did not sign');
+      await act(async () => {
+        await expect(result.current.signAndSendTransaction(new Transaction())).rejects.toThrow(
+          'did not sign'
+        );
+      });
     });
   });
 });

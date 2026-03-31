@@ -1,14 +1,15 @@
 /**
  * @thinkxx/sdk — Account deserialization and fetch helpers.
  *
- * RN-safe: uses only Buffer.readUInt8 / readBigInt64LE / readBigUInt64LE / subarray.
- * No @coral-xyz/anchor coder or Node-specific crypto.
+ * RN-safe: manual little-endian parsing on Uint8Array-compatible buffers.
+ * No @coral-xyz/anchor coder or Node-specific Buffer BigInt helpers.
  */
 
 import { Connection, PublicKey, type GetProgramAccountsFilter } from '@solana/web3.js';
 import { PROGRAM_ID } from '@thinkxx/config';
 import { PlanMode, PlanState } from './client';
 import type { PlanAccountData } from './client';
+import { bytesEqual, bytesToHex, readI64LE, readU32LE, readU64LE } from './bytes';
 
 // ─── Account Discriminators (from IDL) ───────────────────────────────────────
 
@@ -69,11 +70,11 @@ function readPubkey(data: Buffer, offset: number): PublicKey {
 }
 
 function readI64(data: Buffer, offset: number): bigint {
-  return data.readBigInt64LE(offset);
+  return readI64LE(data, offset);
 }
 
 function readU64(data: Buffer, offset: number): bigint {
-  return data.readBigUInt64LE(offset);
+  return readU64LE(data, offset);
 }
 
 function readU8(data: Buffer, offset: number): number {
@@ -97,7 +98,7 @@ function readOptionPubkey(data: Buffer, offset: number): [PublicKey | null, numb
  * Returns [values, bytesConsumed].
  */
 function readVecPubkey(data: Buffer, offset: number): [PublicKey[], number] {
-  const len = data.readUInt32LE(offset);
+  const len = readU32LE(data, offset);
   const keys: PublicKey[] = [];
   let pos = offset + 4;
   for (let i = 0; i < len; i++) {
@@ -111,9 +112,9 @@ function readVecPubkey(data: Buffer, offset: number): [PublicKey[], number] {
 
 function checkDiscriminator(data: Buffer, expected: Buffer, accountName: string): void {
   const actual = data.subarray(0, DISCRIMINATOR_SIZE);
-  if (!actual.equals(expected)) {
+  if (!bytesEqual(actual, expected)) {
     throw new Error(
-      `Invalid ${accountName} discriminator: expected ${expected.toString('hex')}, got ${actual.toString('hex')}`
+      `Invalid ${accountName} discriminator: expected ${bytesToHex(expected)}, got ${bytesToHex(actual)}`
     );
   }
 }

@@ -59,7 +59,29 @@ export default function ConnectScreen(): React.JSX.Element {
       title="Owner Console"
       subtitle="Devnet emergency-access control room for your Solana plan."
       eyebrow="Thinkxx / Lifeline"
+      scroll
       contentContainerStyle={styles.content}
+      footer={
+        <View style={styles.footer}>
+          <PrimaryButton
+            label={connecting ? 'Connecting...' : 'Connect Wallet'}
+            onPress={connect}
+            disabled={connecting}
+            loading={connecting}
+            style={styles.cta}
+          />
+          {!connecting ? (
+            <Text style={styles.footerText}>
+              Mobile Wallet Adapter will open your installed wallet for approval on devnet.
+            </Text>
+          ) : (
+            <View style={styles.connectingRow}>
+              <ActivityIndicator color={theme.colors.primaryLight} size="small" />
+              <Text style={styles.footerText}>Waiting for wallet approval…</Text>
+            </View>
+          )}
+        </View>
+      }
     >
       <View style={styles.heroSection}>
         <Mark />
@@ -97,26 +119,6 @@ export default function ConnectScreen(): React.JSX.Element {
           <Text style={styles.errorText}>{error}</Text>
         </Panel>
       ) : null}
-
-      <View style={styles.footer}>
-        <PrimaryButton
-          label={connecting ? 'Connecting...' : 'Connect Wallet'}
-          onPress={connect}
-          disabled={connecting}
-          loading={connecting}
-          style={styles.cta}
-        />
-        {!connecting ? (
-          <Text style={styles.footerText}>
-            Mobile Wallet Adapter will open your installed wallet for approval on devnet.
-          </Text>
-        ) : (
-          <View style={styles.connectingRow}>
-            <ActivityIndicator color={theme.colors.primaryLight} size="small" />
-            <Text style={styles.footerText}>Waiting for wallet approval…</Text>
-          </View>
-        )}
-      </View>
     </ScreenShell>
   );
 }

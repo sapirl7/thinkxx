@@ -291,21 +291,23 @@ export function WalletProvider({ children }: { children: ReactNode }): React.JSX
       return await transact(
         async wallet => {
           const session = await authorizeWallet(wallet);
-          const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
           const capabilities = await wallet.getCapabilities();
           const features = new Set<string>(capabilities.features as string[] | undefined);
+
+          // Fetch the freshest possible blockhash right before signing.
+          // Use 'processed' commitment for minimum staleness.
+          const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('processed');
 
           transaction.feePayer = transaction.feePayer ?? session.publicKey;
           transaction.recentBlockhash = blockhash;
 
           let signature: string | undefined;
 
-          if (capabilities.supports_sign_and_send_transactions) {
-            [signature] = await wallet.signAndSendTransactions({
-              transactions: [transaction],
-              commitment: 'confirmed',
-            });
-          } else if (features.has(SOLANA_SIGN_TRANSACTIONS_FEATURE)) {
+          // Prefer signTransactions over signAndSendTransactions.
+          // With signTransactions the wallet returns the signed tx immediately
+          // and we submit it ourselves — avoiding the wallet's internal
+          // blockhash-staleness check that causes "Transaction expired".
+          if (features.has(SOLANA_SIGN_TRANSACTIONS_FEATURE)) {
             const [signedTransaction] = await wallet.signTransactions({
               transactions: [transaction],
             });
@@ -315,7 +317,13 @@ export function WalletProvider({ children }: { children: ReactNode }): React.JSX
             }
 
             signature = await connection.sendRawTransaction(signedTransaction.serialize(), {
+              skipPreflight: true,
               preflightCommitment: 'confirmed',
+            });
+          } else if (capabilities.supports_sign_and_send_transactions) {
+            [signature] = await wallet.signAndSendTransactions({
+              transactions: [transaction],
+              commitment: 'confirmed',
             });
           } else {
             throw new Error('This wallet does not support transaction submission for Thinkxx.');

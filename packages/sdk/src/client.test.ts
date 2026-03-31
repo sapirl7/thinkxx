@@ -7,6 +7,7 @@ import { PublicKey, SystemProgram, Connection } from '@solana/web3.js';
 import { ThinkxxClient, PlanMode } from './client';
 import { derivePlanPda, deriveGuardianSetPda, deriveSolVaultPda, deriveClaimPda } from './pda';
 import { PROGRAM_ID } from '@thinkxx/config';
+import { readI64LE, readU64LE } from './bytes';
 
 const conn = new Connection('https://api.devnet.solana.com', 'confirmed');
 const owner = new PublicKey('11111111111111111111111111111112');
@@ -144,7 +145,7 @@ describe('ThinkxxClient', () => {
       expect(ix.data.length).toBe(16);
       assertDiscriminator(ix.data, 'deposit_sol');
       // amount at offset 8
-      expect(ix.data.readBigUInt64LE(8)).toBe(BigInt(1_000_000));
+      expect(readU64LE(ix.data, 8)).toBe(BigInt(1_000_000));
     });
   });
 
@@ -258,7 +259,7 @@ describe('ThinkxxClient', () => {
       expect(ix.keys).toHaveLength(2);
       expect(ix.data.length).toBe(16);
       assertDiscriminator(ix.data, 'set_emergency_bucket');
-      expect(ix.data.readBigUInt64LE(8)).toBe(BigInt(500_000));
+      expect(readU64LE(ix.data, 8)).toBe(BigInt(500_000));
     });
   });
 
@@ -273,7 +274,7 @@ describe('ThinkxxClient', () => {
       expect(ix.keys[4].pubkey.equals(SystemProgram.programId)).toBe(true);
       expect(ix.data.length).toBe(16);
       assertDiscriminator(ix.data, 'emergency_withdraw');
-      expect(ix.data.readBigUInt64LE(8)).toBe(BigInt(250_000));
+      expect(readU64LE(ix.data, 8)).toBe(BigInt(250_000));
     });
   });
 
@@ -302,6 +303,44 @@ describe('ThinkxxClient', () => {
 
       for (const build of methods) {
         expect(() => build()).not.toThrow();
+      }
+    });
+
+    it('builds instructions without Buffer BigInt helpers', () => {
+      const originalWriteU64 = Buffer.prototype.writeBigUInt64LE;
+      const originalWriteI64 = Buffer.prototype.writeBigInt64LE;
+      const originalReadU64 = Buffer.prototype.readBigUInt64LE;
+      const originalReadI64 = Buffer.prototype.readBigInt64LE;
+
+      Object.defineProperties(Buffer.prototype, {
+        writeBigUInt64LE: { value: undefined, configurable: true, writable: true },
+        writeBigInt64LE: { value: undefined, configurable: true, writable: true },
+        readBigUInt64LE: { value: undefined, configurable: true, writable: true },
+        readBigInt64LE: { value: undefined, configurable: true, writable: true },
+      });
+
+      try {
+        const init = client.buildInitializePlan(owner, {
+          planId,
+          mode: PlanMode.LegalRisk,
+          beneficiary,
+          backupBeneficiary,
+          inactivityDuration: 86_400n,
+          gracePeriod: 3_600n,
+          guardianQuorum: 1,
+        }).instruction;
+
+        expect(readU64LE(init.data, 8)).toBe(planId);
+        expect(readI64LE(init.data, 82, )).toBe(86_400n);
+        expect(readI64LE(init.data, 90, )).toBe(3_600n);
+        expect(() => client.buildDepositSol(owner, planPda, 1_000_000n)).not.toThrow();
+      } finally {
+        Object.defineProperties(Buffer.prototype, {
+          writeBigUInt64LE: { value: originalWriteU64, configurable: true, writable: true },
+          writeBigInt64LE: { value: originalWriteI64, configurable: true, writable: true },
+          readBigUInt64LE: { value: originalReadU64, configurable: true, writable: true },
+          readBigInt64LE: { value: originalReadI64, configurable: true, writable: true },
+        });
       }
     });
   });
