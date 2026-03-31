@@ -1,6 +1,6 @@
-use anchor_lang::prelude::*;
-use crate::state::*;
 use crate::error::LifelineError;
+use crate::state::*;
+use anchor_lang::prelude::*;
 
 #[derive(Accounts)]
 pub struct ApproveClaim<'info> {
@@ -41,7 +41,11 @@ pub fn handler(ctx: Context<ApproveClaim>) -> Result<()> {
     let quorum = ctx.accounts.guardian_set.quorum;
     if claim.approvals.len() >= quorum as usize {
         claim.state = ClaimState::Approved;
-        msg!("Claim approved — quorum ({}/{}) met", claim.approvals.len(), quorum);
+        msg!(
+            "Claim approved — quorum ({}/{}) met",
+            claim.approvals.len(),
+            quorum
+        );
     } else {
         msg!(
             "Guardian {} approved. Progress: {}/{}",

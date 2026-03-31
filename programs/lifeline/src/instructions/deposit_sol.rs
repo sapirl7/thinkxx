@@ -1,7 +1,7 @@
+use crate::error::LifelineError;
+use crate::state::*;
 use anchor_lang::prelude::*;
 use anchor_lang::system_program;
-use crate::state::*;
-use crate::error::LifelineError;
 
 #[derive(Accounts)]
 pub struct DepositSol<'info> {

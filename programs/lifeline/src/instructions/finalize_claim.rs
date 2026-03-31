@@ -1,7 +1,7 @@
+use crate::error::LifelineError;
+use crate::state::*;
 use anchor_lang::prelude::*;
 use anchor_lang::system_program;
-use crate::state::*;
-use crate::error::LifelineError;
 
 #[derive(Accounts)]
 pub struct FinalizeClaim<'info> {
@@ -58,7 +58,7 @@ pub fn handler(ctx: Context<FinalizeClaim>) -> Result<()> {
         ClaimState::Pending => {
             // Grace period must have elapsed
             clock.unix_timestamp > claim.grace_deadline
-            && (ctx.accounts.guardian_set.guardians.is_empty() || plan.guardian_quorum == 0)
+                && (ctx.accounts.guardian_set.guardians.is_empty() || plan.guardian_quorum == 0)
         }
         _ => false,
     };

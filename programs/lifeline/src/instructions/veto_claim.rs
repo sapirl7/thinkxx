@@ -1,6 +1,6 @@
-use anchor_lang::prelude::*;
-use crate::state::*;
 use crate::error::LifelineError;
+use crate::state::*;
+use anchor_lang::prelude::*;
 
 #[derive(Accounts)]
 pub struct VetoClaim<'info> {
@@ -43,6 +43,9 @@ pub fn handler(ctx: Context<VetoClaim>) -> Result<()> {
     plan.last_heartbeat = Clock::get()?.unix_timestamp;
     plan.updated_at = Clock::get()?.unix_timestamp;
 
-    msg!("Claim vetoed by guardian {}. Plan restored to Active.", guardian_key);
+    msg!(
+        "Claim vetoed by guardian {}. Plan restored to Active.",
+        guardian_key
+    );
     Ok(())
 }
