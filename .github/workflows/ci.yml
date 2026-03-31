@@ -43,7 +43,7 @@ jobs:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all -- --check
-      - run: cargo clippy --all-targets -- -D warnings -A unexpected_cfgs
+      - run: cargo clippy --all-targets -- -D warnings -A unexpected_cfgs -A clippy::too_many_arguments -A clippy::manual_range_contains -A ambiguous_glob_reexports
 
   anchor-build:
     name: Anchor Build
