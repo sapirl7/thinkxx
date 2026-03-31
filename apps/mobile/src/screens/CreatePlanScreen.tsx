@@ -250,7 +250,6 @@ export default function CreatePlanScreen({ onBack, onCreated }: CreatePlanScreen
 
       planAddressBase58 = planPda.toBase58();
       signature = await signAndSendTransaction(new Transaction().add(instruction));
-      onCreated(planAddressBase58);
       setCreationStage('confirming_chain');
       const syncState = await waitForPlanConfirmation(connection, planPda);
 
@@ -258,14 +257,14 @@ export default function CreatePlanScreen({ onBack, onCreated }: CreatePlanScreen
         Alert.alert(
           'Plan Created',
           `Plan address:\n${planPda.toBase58()}\n\nSignature:\n${signature}`,
-          [{ text: 'Continue' }],
+          [{ text: 'Continue', onPress: () => onCreated(planAddressBase58!) }],
           { cancelable: false },
         );
       } else {
         Alert.alert(
           'Plan Submitted',
           `Transaction signature:\n${signature}\n\nThe plan request reached devnet, but RPC sync is delayed. Open Dashboard and pull to refresh in a few seconds.`,
-          [{ text: 'Continue' }],
+          [{ text: 'Continue', onPress: () => onCreated(planAddressBase58!) }],
           { cancelable: false },
         );
       }
@@ -274,7 +273,7 @@ export default function CreatePlanScreen({ onBack, onCreated }: CreatePlanScreen
         Alert.alert(
           'Plan Submitted',
           `Plan address:\n${planAddressBase58}\n\nTransaction signature:\n${signature}\n\nThe transaction was submitted, but devnet state sync is delayed. Open Dashboard and pull to refresh in a few seconds.`,
-          [{ text: 'Continue' }],
+          [{ text: 'Continue', onPress: () => onCreated(planAddressBase58!) }],
           { cancelable: false },
         );
         return;
