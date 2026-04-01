@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -39,7 +39,7 @@ export default function DepositScreen({
   const [sending, setSending] = useState(false);
   const [txSig, setTxSig] = useState<string | null>(null);
 
-  const planPda = new PublicKey(planAddress);
+  const planPda = useMemo(() => new PublicKey(planAddress), [planAddress]);
 
   useEffect(() => {
     const fetchBalances = async (): Promise<void> => {

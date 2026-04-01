@@ -89,8 +89,20 @@ describe('CreatePlanScreen', () => {
     fireEvent.click(createButtons[createButtons.length - 1]);
 
     await waitFor(() => {
-      expect(onCreated).toHaveBeenCalledWith(mockPublicKey.toBase58());
+      expect(mockAlert).toHaveBeenCalledWith(
+        'Plan Created',
+        expect.any(String),
+        expect.any(Array),
+        { cancelable: false }
+      );
     });
+
+    // Simulate pressing 'Continue' in the alert
+    const alertArgs = mockAlert.mock.calls[0];
+    const continueButton = alertArgs[2][0];
+    continueButton.onPress();
+
+    expect(onCreated).toHaveBeenCalledWith(mockPublicKey.toBase58());
   });
 
   it('treats 429 after submit as pending sync instead of hard failure', async () => {
@@ -110,14 +122,20 @@ describe('CreatePlanScreen', () => {
     fireEvent.click(createButtons[createButtons.length - 1]);
 
     await waitFor(() => {
-      expect(onCreated).toHaveBeenCalledWith(mockPublicKey.toBase58());
       expect(mockAlert).toHaveBeenCalledWith(
         'Plan Submitted',
         expect.stringContaining('RPC sync is delayed'),
         expect.any(Array),
         { cancelable: false }
       );
-    }, { timeout: 5000 });
+    }, { timeout: 8000 });
+
+    // Simulate pressing 'Continue' in the alert
+    const alertArgs = mockAlert.mock.calls[0];
+    const continueButton = alertArgs[2][0];
+    continueButton.onPress();
+
+    expect(onCreated).toHaveBeenCalledWith(mockPublicKey.toBase58());
   });
 
   // ── Timing Validation (tested via extracted logic) ──

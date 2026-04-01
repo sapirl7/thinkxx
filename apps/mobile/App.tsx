@@ -134,6 +134,18 @@ function AppNavigator(): React.JSX.Element {
     setScreen('deposit');
   };
 
+  const renderDashboard = (): React.JSX.Element => (
+    <DashboardScreen
+      onCreatePlan={() => setScreen('create_plan')}
+      onHeartbeat={navigateToHeartbeat}
+      onSettings={() => setScreen('settings')}
+      onPlanDetail={navigateToPlanDetail}
+      onDeposit={navigateToDeposit}
+      selectedPlanAddress={selectedPlanAddress}
+      lastCreatedPlanAddress={planSession.lastCreatedPlanPda}
+    />
+  );
+
   switch (screen) {
     case 'create_plan':
       return (
@@ -166,34 +178,14 @@ function AppNavigator(): React.JSX.Element {
           onHeartbeat={navigateToHeartbeat}
           onDeposit={navigateToDeposit}
         />
-      ) : (
-        <DashboardScreen
-          onCreatePlan={() => setScreen('create_plan')}
-          onHeartbeat={navigateToHeartbeat}
-          onSettings={() => setScreen('settings')}
-          onPlanDetail={navigateToPlanDetail}
-          onDeposit={navigateToDeposit}
-          selectedPlanAddress={selectedPlanAddress}
-          lastCreatedPlanAddress={planSession.lastCreatedPlanPda}
-        />
-      );
+      ) : renderDashboard();
     case 'guardians':
       return selectedPlanAddress ? (
         <GuardiansScreen
           planAddress={selectedPlanAddress}
           onBack={() => navigateToPlanDetail(selectedPlanAddress)}
         />
-      ) : (
-        <DashboardScreen
-          onCreatePlan={() => setScreen('create_plan')}
-          onHeartbeat={navigateToHeartbeat}
-          onSettings={() => setScreen('settings')}
-          onPlanDetail={navigateToPlanDetail}
-          onDeposit={navigateToDeposit}
-          selectedPlanAddress={selectedPlanAddress}
-          lastCreatedPlanAddress={planSession.lastCreatedPlanPda}
-        />
-      );
+      ) : renderDashboard();
     case 'settings':
       return <SettingsScreen onBack={() => setScreen('dashboard')} />;
     case 'deposit':
@@ -202,29 +194,9 @@ function AppNavigator(): React.JSX.Element {
           planAddress={selectedPlanAddress}
           onBack={() => navigateToPlanDetail(selectedPlanAddress)}
         />
-      ) : (
-        <DashboardScreen
-          onCreatePlan={() => setScreen('create_plan')}
-          onHeartbeat={navigateToHeartbeat}
-          onSettings={() => setScreen('settings')}
-          onPlanDetail={navigateToPlanDetail}
-          onDeposit={navigateToDeposit}
-          selectedPlanAddress={selectedPlanAddress}
-          lastCreatedPlanAddress={planSession.lastCreatedPlanPda}
-        />
-      );
+      ) : renderDashboard();
     default:
-      return (
-        <DashboardScreen
-          onCreatePlan={() => setScreen('create_plan')}
-          onHeartbeat={navigateToHeartbeat}
-          onSettings={() => setScreen('settings')}
-          onPlanDetail={navigateToPlanDetail}
-          onDeposit={navigateToDeposit}
-          selectedPlanAddress={selectedPlanAddress}
-          lastCreatedPlanAddress={planSession.lastCreatedPlanPda}
-        />
-      );
+      return renderDashboard();
   }
 }
 

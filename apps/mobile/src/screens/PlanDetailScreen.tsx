@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -103,7 +103,7 @@ export default function PlanDetailScreen({
   const [acting, setActing] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  const planPda = new PublicKey(planAddress);
+  const planPda = useMemo(() => new PublicKey(planAddress), [planAddress]);
 
   const fetchData = useCallback(async () => {
     setLoadError(null);

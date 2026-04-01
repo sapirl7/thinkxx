@@ -287,21 +287,51 @@ export function WalletProvider({ children }: { children: ReactNode }): React.JSX
       throw new Error(PROGRAM_NOT_DEPLOYED_MESSAGE);
     }
 
+    // Fetch blockhash BEFORE opening wallet session to minimize session time.
+    const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('processed');
+
+    let signature: string;
+
     try {
-      return await transact(
+      signature = await transact(
         async wallet => {
-          const session = await authorizeWallet(wallet);
+          // Use silent reauthorize when we have a saved auth_token.
+          // This avoids showing the wallet authorization UI on every transaction.
+          let session: AuthorizedWalletSession;
+          if (state.authToken) {
+            try {
+              const reauth = await wallet.reauthorize({
+                auth_token: state.authToken,
+                identity: APP_IDENTITY,
+              });
+              session = toAuthorizedSession(reauth, state.walletUriBase);
+              // Persist refreshed token silently
+              setState(current => ({
+                ...current,
+                authToken: session.authToken,
+                walletUriBase: session.walletUriBase,
+              }));
+              void persistWalletSession({
+                publicKeyBase58: session.publicKey.toBase58(),
+                authToken: session.authToken,
+                walletUriBase: session.walletUriBase,
+                lastConnectedAt: Date.now(),
+              });
+            } catch {
+              // Token expired or invalid — fall back to full authorize
+              session = await authorizeWallet(wallet);
+            }
+          } else {
+            session = await authorizeWallet(wallet);
+          }
+
           const capabilities = await wallet.getCapabilities();
           const features = new Set<string>(capabilities.features as string[] | undefined);
-
-          // Fetch the freshest possible blockhash right before signing.
-          // Use 'processed' commitment for minimum staleness.
-          const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('processed');
 
           transaction.feePayer = transaction.feePayer ?? session.publicKey;
           transaction.recentBlockhash = blockhash;
 
-          let signature: string | undefined;
+          let sig: string | undefined;
 
           // Prefer signTransactions over signAndSendTransactions.
           // With signTransactions the wallet returns the signed tx immediately
@@ -316,12 +346,12 @@ export function WalletProvider({ children }: { children: ReactNode }): React.JSX
               throw new Error('Wallet did not return a signed transaction');
             }
 
-            signature = await connection.sendRawTransaction(signedTransaction.serialize(), {
+            sig = await connection.sendRawTransaction(signedTransaction.serialize(), {
               skipPreflight: true,
               preflightCommitment: 'confirmed',
             });
           } else if (capabilities.supports_sign_and_send_transactions) {
-            [signature] = await wallet.signAndSendTransactions({
+            [sig] = await wallet.signAndSendTransactions({
               transactions: [transaction],
               commitment: 'confirmed',
             });
@@ -329,20 +359,11 @@ export function WalletProvider({ children }: { children: ReactNode }): React.JSX
             throw new Error('This wallet does not support transaction submission for Thinkxx.');
           }
 
-          if (!signature) {
+          if (!sig) {
             throw new Error('Wallet did not return a transaction signature');
           }
 
-          const confirmation = await connection.confirmTransaction(
-            { signature, blockhash, lastValidBlockHeight },
-            'confirmed'
-          );
-
-          if (confirmation.value.err) {
-            throw new Error(`Transaction failed: ${JSON.stringify(confirmation.value.err)}`);
-          }
-
-          return signature;
+          return sig;
         },
         state.walletUriBase ? { baseUri: state.walletUriBase } : undefined
       );
@@ -351,7 +372,20 @@ export function WalletProvider({ children }: { children: ReactNode }): React.JSX
       setState(current => ({ ...current, error: message }));
       throw new Error(message);
     }
-  }, [authorizeWallet, connection, state.connected, state.walletUriBase]);
+
+    // Confirm OUTSIDE transact() — MWA session is already closed,
+    // so the wallet app is no longer blocking the user.
+    const confirmation = await connection.confirmTransaction(
+      { signature, blockhash, lastValidBlockHeight },
+      'confirmed'
+    );
+
+    if (confirmation.value.err) {
+      throw new Error(`Transaction failed: ${JSON.stringify(confirmation.value.err)}`);
+    }
+
+    return signature;
+  }, [authorizeWallet, connection, state.authToken, state.connected, state.walletUriBase]);
 
   const shortAddress = state.publicKey
     ? `${state.publicKey.toBase58().slice(0, 4)}...${state.publicKey.toBase58().slice(-4)}`

@@ -1,7 +1,6 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import {
   ActivityIndicator,
-  RefreshControl,
   StyleSheet,
   Text,
   TouchableOpacity,

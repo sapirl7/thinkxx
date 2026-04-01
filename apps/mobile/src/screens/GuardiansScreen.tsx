@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -104,8 +104,8 @@ export default function GuardiansScreen({
   const [newGuardian, setNewGuardian] = useState('');
   const [showAdd, setShowAdd] = useState(false);
 
-  const planPda = new PublicKey(planAddress);
-  const client = new ThinkxxClient(connection);
+  const planPda = useMemo(() => new PublicKey(planAddress), [planAddress]);
+  const client = useMemo(() => new ThinkxxClient(connection), [connection]);
 
   const fetchData = useCallback(async () => {
     try {
