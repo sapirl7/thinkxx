@@ -1,6 +1,6 @@
 {
   "name": "@thinkxx/config",
-  "version": "0.1.0",
+  "version": "0.1.0-devnet",
   "private": true,
   "description": "Shared configuration, constants, and types for Thinkxx",
   "main": "dist/index.js",

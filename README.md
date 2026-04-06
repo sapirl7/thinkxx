@@ -381,8 +381,23 @@ thinkxx/
 ```bash
 git clone https://github.com/sapirl7/thinkxx.git
 cd thinkxx
+nvm use              # reads .nvmrc → Node 20
 pnpm install
 pnpm run build
+```
+
+> **Toolchain pinning**: the repo includes [`.nvmrc`](.nvmrc) for Node.js and [`rust-toolchain.toml`](rust-toolchain.toml) for Rust. `nvm use` and `rustup` will pick them up automatically.
+
+### Using the Makefile
+
+A [`Makefile`](Makefile) provides a unified DX layer across all stacks:
+
+```bash
+make help            # list all targets
+make check           # lint + format-check + clippy (no tests)
+make test-all        # SDK + mobile + Anchor
+make audit           # cargo audit + pnpm audit
+make ci              # full CI reproduction locally
 ```
 
 ### Anchor Program
@@ -610,6 +625,9 @@ All Anchor integration tests use [`anchor-bankrun`](https://github.com/coral-xyz
 | `sdk-test` | `pnpm run test:sdk` | ✅ |
 | `mobile-test` | `pnpm run test:mobile` | ✅ |
 | `anchor-test` | `pnpm run test:anchor` (bankrun) | ✅ |
+| `verify-generated` | `git diff --exit-code` on IDL/types | ✅ |
+| `cargo-audit` | RustSec dependency scan | ✅ |
+| `pnpm-audit` | npm advisory scan (prod, high+) | ✅ |
 
 ---
 

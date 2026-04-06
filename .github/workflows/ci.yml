@@ -110,3 +110,25 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm run test:anchor
+
+  verify-generated:
+    name: Verify generated artifacts
+    runs-on: ubuntu-latest
+    needs: anchor-build
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install Anchor CLI
+        run: |
+          cargo install --git https://github.com/coral-xyz/anchor avm --force
+          avm install ${{ env.ANCHOR_VERSION }}
+          avm use ${{ env.ANCHOR_VERSION }}
+      - name: Build Anchor program
+        run: anchor build
+      - name: Ensure generated files are committed
+        run: |
+          git diff --exit-code -- \
+            target/types \
+            target/idl || (echo "::error::Generated artifacts differ from committed versions. Run 'anchor build' and commit changes." && exit 1)
+

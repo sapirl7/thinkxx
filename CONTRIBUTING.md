@@ -101,3 +101,35 @@ Major changes should be preceded by an ADR (Architecture Decision Record) in `do
 ## Code of Conduct
 
 This project follows the [Contributor Covenant Code of Conduct](CODE_OF_CONDUCT.md).
+
+## Toolchain Pinning
+
+The repository pins toolchain versions for reproducibility:
+
+- **Node.js**: see [`.nvmrc`](../.nvmrc) — use `nvm use` to switch
+- **Rust**: see [`rust-toolchain.toml`](../rust-toolchain.toml) — `rustup` reads this automatically
+- **pnpm**: pinned in `packageManager` field of root `package.json`
+- **Anchor**: version tracked in `.github/workflows/ci.yml` env and `Anchor.toml`
+
+## Makefile
+
+A [`Makefile`](../Makefile) provides a unified DX layer for all operations:
+
+```bash
+make help          # List all targets
+make install       # pnpm install --frozen-lockfile
+make check         # lint + format-check + clippy (no tests)
+make test-all      # SDK + mobile + Anchor tests
+make audit         # cargo audit + pnpm audit
+make ci            # Full CI reproduction (install → check → test-all)
+```
+
+## Dependency Security
+
+Security audits run automatically in CI ([security.yml](../.github/workflows/security.yml)) and can be triggered locally:
+
+```bash
+make audit
+```
+
+This runs `cargo audit` (Rust/RustSec) and `pnpm audit --prod --audit-level=high` (npm advisories).

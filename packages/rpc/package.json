@@ -1,6 +1,6 @@
 {
   "name": "@thinkxx/rpc",
-  "version": "0.1.0",
+  "version": "0.1.0-devnet",
   "private": true,
   "description": "RPC resilience layer with pool, health scoring, and fallback",
   "main": "dist/index.js",

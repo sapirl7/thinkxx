@@ -1,6 +1,6 @@
 {
   "name": "@thinkxx/sdk",
-  "version": "0.1.0",
+  "version": "0.1.0-devnet",
   "private": true,
   "description": "TypeScript SDK for the Thinkxx Lifeline protocol",
   "main": "dist/index.js",
