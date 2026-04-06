@@ -1,6 +1,6 @@
 {
   "name": "@thinkxx/mobile",
-  "version": "0.1.0",
+  "version": "0.1.0-devnet",
   "main": "index.ts",
   "private": true,
   "scripts": {
