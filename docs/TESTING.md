@@ -34,7 +34,7 @@ pnpm run test:anchor
 
 Rebuilds the program (`anchor build`) then runs 69 integration tests via `ts-mocha` using `anchor-bankrun`. **No local validator is required** — bankrun runs an in-process Solana runtime.
 
-> **⚠️ `anchor test` is NOT the merge gate.** The canonical command is `pnpm run test:anchor`, which runs bankrun-based tests without a local validator. The old `anchor test` command (which spins up `solana-test-validator`) is no longer used in CI or local development. If you see `anchor test` in legacy docs or scripts, replace it with `pnpm run test:anchor`.
+> **`anchor test` is NOT the merge gate.** The canonical command is `pnpm run test:anchor`, which runs bankrun-based tests without a local validator. The old `anchor test` command (which spins up `solana-test-validator`) is no longer used in CI or local development. If you see `anchor test` in legacy docs or scripts, replace it with `pnpm run test:anchor`.
 
 Tests cover: `initialize_plan`, `deposit_sol`, `add/remove_guardian`, `heartbeat`, `set_emergency_bucket`, `emergency_withdraw`, `pause/resume/close_plan`, and the full claim flow (`start`, `cancel`, `approve`, `veto`, `finalize`).
 
@@ -75,9 +75,9 @@ Changes to files under `programs/lifeline/src/` require **maintainer review** be
 
 | Job | What it does | Required |
 |---|---|---|
-| `lint-and-typecheck` | ESLint + TypeScript strict | ✅ |
-| `rust-checks` | `cargo fmt --check` + `clippy -D warnings` | ✅ |
-| `anchor-build` | `anchor build` | ✅ |
-| `sdk-test` | `pnpm run test:sdk` | ✅ |
-| `mobile-test` | `pnpm run test:mobile` | ✅ |
-| `anchor-test` | `pnpm run test:anchor` (bankrun, no validator) | ✅ |
+| `lint-and-typecheck` | ESLint + TypeScript strict | |
+| `rust-checks` | `cargo fmt --check` + `clippy -D warnings` | |
+| `anchor-build` | `anchor build` | |
+| `sdk-test` | `pnpm run test:sdk` | |
+| `mobile-test` | `pnpm run test:mobile` | |
+| `anchor-test` | `pnpm run test:anchor` (bankrun, no validator) | |

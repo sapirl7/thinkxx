@@ -10,26 +10,26 @@ Thinkxx uses an **explicit allowlist** approach for token support. We do not cla
 
 | Token Class | Support | Program | Notes |
 |-------------|---------|---------|-------|
-| **SOL** | ✅ Full | System Program | Native asset, always supported |
-| **Classic SPL Token** | ✅ Full | Token Program | Standard fungible tokens (USDC, USDT, etc.) |
-| **Token-2022 (basic)** | ⚠️ Curated | Token-2022 | Only mints with no problematic extensions |
+| **SOL** | Full | System Program | Native asset, always supported |
+| **Classic SPL Token** | Full | Token Program | Standard fungible tokens (USDC, USDT, etc.) |
+| **Token-2022 (basic)** | Curated | Token-2022 | Only mints with no problematic extensions |
 
 ## Token-2022 Extension Evaluation
 
 | Extension | v1 Support | Risk | Rationale |
 |-----------|-----------|------|-----------|
-| **Transfer Fee** | ❌ Rejected | HIGH | Fee deduction during claim could leave vault with dust; accounting becomes non-deterministic |
-| **Interest Bearing** | ❌ Rejected | MEDIUM | Interest accrual complicates vault balance tracking; balance at claim time differs from deposit time |
-| **Permanent Delegate** | ❌ Rejected | CRITICAL | Third party could drain vault tokens at any time |
-| **Non-Transferable** | ❌ Rejected | HIGH | Cannot transfer during claim finalization |
-| **Transfer Hook** | ❌ Rejected | HIGH | Arbitrary CPI during transfers; unpredictable gas, state changes, and failure modes |
-| **Confidential Transfer** | ❌ Rejected | HIGH | Cannot verify vault balance on-chain; incompatible with transparent claim flow |
-| **CPI Guard** | ⚠️ Evaluate | LOW | May prevent CPI transfers from vault; needs testing per mint |
-| **Default Account State** | ✅ Compatible | LOW | Frozen default can be handled during vault account creation |
-| **Immutable Owner** | ✅ Compatible | NONE | Does not affect transfer operations |
-| **Memo Required** | ⚠️ Evaluate | LOW | CPI transfers may need memo instruction; adds complexity |
-| **Metadata** | ✅ Compatible | NONE | Display only; no effect on transfers |
-| **Metadata Pointer** | ✅ Compatible | NONE | Display only |
+| **Transfer Fee** | Rejected | HIGH | Fee deduction during claim could leave vault with dust; accounting becomes non-deterministic |
+| **Interest Bearing** | Rejected | MEDIUM | Interest accrual complicates vault balance tracking; balance at claim time differs from deposit time |
+| **Permanent Delegate** | Rejected | CRITICAL | Third party could drain vault tokens at any time |
+| **Non-Transferable** | Rejected | HIGH | Cannot transfer during claim finalization |
+| **Transfer Hook** | Rejected | HIGH | Arbitrary CPI during transfers; unpredictable gas, state changes, and failure modes |
+| **Confidential Transfer** | Rejected | HIGH | Cannot verify vault balance on-chain; incompatible with transparent claim flow |
+| **CPI Guard** | Evaluate | LOW | May prevent CPI transfers from vault; needs testing per mint |
+| **Default Account State** | Compatible | LOW | Frozen default can be handled during vault account creation |
+| **Immutable Owner** | Compatible | NONE | Does not affect transfer operations |
+| **Memo Required** | Evaluate | LOW | CPI transfers may need memo instruction; adds complexity |
+| **Metadata** | Compatible | NONE | Display only; no effect on transfers |
+| **Metadata Pointer** | Compatible | NONE | Display only |
 
 ## Rejection Behavior
 

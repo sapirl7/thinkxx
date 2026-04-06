@@ -5,7 +5,7 @@
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Network: devnet](https://img.shields.io/badge/Solana-devnet-purple.svg)](https://explorer.solana.com/?cluster=devnet)
 [![Anchor](https://img.shields.io/badge/Anchor-0.30.1-blueviolet.svg)](https://anchor-lang.com)
-[![Tests: 183](https://img.shields.io/badge/tests-183_passing-brightgreen.svg)](#test-suite)
+[![Tests: 185](https://img.shields.io/badge/tests-185_passing-brightgreen.svg)](#test-suite)
 [![Mobile: Expo](https://img.shields.io/badge/Mobile-Expo_SDK_51-000020.svg)](https://expo.dev)
 
 ---
@@ -18,18 +18,18 @@ All critical logic is enforced **on-chain** via an Anchor program. The mobile ap
 
 ### What it is
 
-- 🔐 **Emergency access protocol** for digital assets on Solana
-- 📱 **Android-first** mobile app optimized for Solana Seeker
-- ⛓️ **On-chain policy enforcement** — 18 Anchor instructions
-- 🛡️ **Non-custodial** — app never touches your private keys
-- 🧪 **183 bankrun-tested** protocol, SDK, and mobile flows
+- Emergency access protocol for digital assets on Solana
+- Android-first mobile app optimized for Solana Seeker
+- On-chain policy enforcement — 18 Anchor instructions
+- Non-custodial — the app never touches private keys
+- 185 bankrun-tested protocol, SDK, and mobile flows
 
 ### What it is NOT
 
-- ❌ Not a wallet or key custodian
-- ❌ Not a legal will or estate document
-- ❌ Not a seed phrase manager or recovery service
-- ❌ Not a DeFi protocol or yield farm
+- Not a wallet or key custodian
+- Not a legal will or estate document
+- Not a seed phrase manager or recovery service
+- Not a DeFi protocol or yield farm
 
 ---
 
@@ -40,7 +40,7 @@ This is a **devnet MVP** (v0.1.0-devnet). It is not audited, not mainnet-ready, 
 | Metric | Value |
 |--------|-------|
 | On-chain instructions | 18 |
-| Test coverage | 183 tests (44 SDK + 70 mobile + 69 Anchor) |
+| Test coverage | 185 tests (44 SDK + 72 mobile + 69 Anchor) |
 | Mobile screens | 8 (owner-side flows) |
 | SDK instruction builders | 15 |
 | CLI commands | 10 |
@@ -606,28 +606,28 @@ All Anchor integration tests use [`anchor-bankrun`](https://github.com/coral-xyz
 
 | Category | Coverage |
 |----------|----------|
-| Plan initialization | ✅ Draft state, PDA creation, parameter validation |
-| State transitions | ✅ All 7 states, guard conditions |
-| Guardian management | ✅ Add/remove, max 5, quorum math |
-| Claim flow | ✅ start → cancel/approve/veto → finalize |
-| Emergency bucket | ✅ Set, withdraw, exceed |
-| Timing validation | ✅ Inactivity window, grace period, edge cases |
-| PDA derivation | ✅ All 5 derivation functions |
-| Security invariants | ✅ Signer checks, wrong-owner, wrong-beneficiary, wrong-guardian |
+| Plan initialization | Draft state, PDA creation, parameter validation |
+| State transitions | All 7 states, guard conditions |
+| Guardian management | Add/remove, max 5, quorum math |
+| Claim flow | start, cancel, approve, veto, finalize |
+| Emergency bucket | Set, withdraw, exceed |
+| Timing validation | Inactivity window, grace period, edge cases |
+| PDA derivation | All 5 derivation functions |
+| Security invariants | Signer checks, wrong-owner, wrong-beneficiary, wrong-guardian |
 
 ### CI Pipeline
 
 | Job | What | Required |
 |-----|------|:--------:|
-| `lint-and-typecheck` | ESLint + TypeScript strict | ✅ |
-| `rust-checks` | `cargo fmt --check` + `clippy -D warnings` | ✅ |
-| `anchor-build` | `anchor build` | ✅ |
-| `sdk-test` | `pnpm run test:sdk` | ✅ |
-| `mobile-test` | `pnpm run test:mobile` | ✅ |
-| `anchor-test` | `pnpm run test:anchor` (bankrun) | ✅ |
-| `verify-generated` | `git diff --exit-code` on IDL/types | ✅ |
-| `cargo-audit` | RustSec dependency scan | ✅ |
-| `pnpm-audit` | npm advisory scan (prod, high+) | ✅ |
+| `lint-and-typecheck` | ESLint + TypeScript strict | Yes |
+| `rust-checks` | `cargo fmt --check` + `clippy -D warnings` | Yes |
+| `anchor-build` | `anchor build` | Yes |
+| `sdk-test` | `pnpm run test:sdk` | Yes |
+| `mobile-test` | `pnpm run test:mobile` | Yes |
+| `anchor-test` | `pnpm run test:anchor` (bankrun) | Yes |
+| `verify-generated` | `git diff --exit-code` on IDL/types | Yes |
+| `cargo-audit` | RustSec dependency scan | Yes |
+| `pnpm-audit` | npm advisory scan (prod, high+) | Yes |
 
 ---
 
@@ -747,11 +747,11 @@ Full details: [RPC_STRATEGY.md](docs/RPC_STRATEGY.md)
 
 ## Important Disclaimers
 
-- ⚠️ This is **experimental software** deployed on **devnet only**
-- ⚠️ A formal security **audit has not been completed**
-- ⚠️ This is **not legal advice** and does not replace estate planning
-- ⚠️ Public blockchain activity is **publicly observable**
-- ⚠️ Users must **independently verify** beneficiary addresses and legal arrangements
+- This is **experimental software** deployed on **devnet only**
+- A formal security **audit has not been completed**
+- This is **not legal advice** and does not replace estate planning
+- Public blockchain activity is **publicly observable**
+- Users must **independently verify** beneficiary addresses and legal arrangements
 
 ---
 

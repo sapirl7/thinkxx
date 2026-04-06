@@ -97,7 +97,7 @@ When the write path is unhealthy:
 
 ```
 ┌─────────────────────────────────┐
-│  ⚠️ Limited Connectivity        │
+│  Limited Connectivity        │
 │                                 │
 │  You can view your plan status  │
 │  but transactions may fail.     │
