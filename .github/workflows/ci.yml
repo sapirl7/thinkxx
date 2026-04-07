@@ -13,7 +13,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  SOLANA_VERSION: "2.0.0"
+  SOLANA_VERSION: "2.1.0"
   ANCHOR_VERSION: "0.30.1"
   NODE_VERSION: "20"
   RUST_TOOLCHAIN: "stable"
