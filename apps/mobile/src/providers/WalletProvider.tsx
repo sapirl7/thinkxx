@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback, useMemo, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useCallback, useMemo, ReactNode, useEffect } from 'react';
 import { PublicKey, Connection, Transaction } from '@solana/web3.js';
 import { Buffer } from 'buffer';
 import {
@@ -12,6 +12,11 @@ import {
   SolanaMobileWalletAdapterProtocolError,
   SolanaMobileWalletAdapterProtocolErrorCode,
 } from '@solana-mobile/mobile-wallet-adapter-protocol';
+import {
+  clearWalletSession,
+  loadWalletSession,
+  persistWalletSession,
+} from '../state/wallet-session';
 
 const SOLANA_SIGN_TRANSACTIONS_FEATURE = 'solana:signTransactions';
 
@@ -21,6 +26,7 @@ interface WalletState {
   publicKey: PublicKey | null;
   connecting: boolean;
   error: string | null;
+  hydrated: boolean;
 }
 
 /** Wallet context value */
@@ -30,6 +36,10 @@ interface WalletContextValue extends WalletState {
   disconnect: () => void;
   signAndSendTransaction: (transaction: Transaction) => Promise<string>;
   shortAddress: string | null;
+  /** Best-effort wallet app label derived from wallet_uri_base host */
+  walletLabel: string | null;
+  /** Current RPC endpoint URL */
+  rpcEndpoint: string;
 }
 
 interface WalletSessionState extends WalletState {
@@ -51,9 +61,12 @@ interface AuthorizedWalletSession {
 
 const WalletContext = createContext<WalletContextValue | null>(null);
 
+const APP_SCHEME = 'thinkxx';
 const APP_IDENTITY = {
   name: 'Thinkxx',
-  uri: 'https://github.com/sapirl7/thinkxx',
+  // Use the app scheme until a dedicated public app site exists.
+  // This avoids wallet approval sheets presenting a generic github.com host.
+  uri: `${APP_SCHEME}://app`,
 } as const;
 
 const DEVNET_CHAIN = 'solana:devnet';
@@ -134,6 +147,7 @@ export function WalletProvider({ children }: { children: ReactNode }): React.JSX
     publicKey: null,
     connecting: false,
     error: null,
+    hydrated: false,
     authToken: null,
     walletUriBase: null,
   });
@@ -142,6 +156,50 @@ export function WalletProvider({ children }: { children: ReactNode }): React.JSX
     () => new Connection(NETWORK_CONFIG[CLUSTER.DEVNET].rpcEndpoint, 'confirmed'),
     []
   );
+
+  useEffect(() => {
+    let active = true;
+
+    const hydrateSession = async (): Promise<void> => {
+      try {
+        const session = await loadWalletSession();
+        if (!active) {
+          return;
+        }
+
+        const { publicKeyBase58, authToken, walletUriBase } = session;
+
+        if (publicKeyBase58 && authToken) {
+          setState(current => ({
+            ...current,
+            connected: true,
+            publicKey: new PublicKey(publicKeyBase58),
+            authToken,
+            walletUriBase,
+            hydrated: true,
+          }));
+          return;
+        }
+      } catch {
+        // Ignore corrupted persisted session and continue with empty state.
+      }
+
+      if (!active) {
+        return;
+      }
+
+      setState(current => ({
+        ...current,
+        hydrated: true,
+      }));
+    };
+
+    void hydrateSession();
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const authorizeWallet = useCallback(
     async (wallet: Web3MobileWallet): Promise<AuthorizedWalletSession> => {
@@ -158,9 +216,17 @@ export function WalletProvider({ children }: { children: ReactNode }): React.JSX
         connecting: false,
         publicKey: session.publicKey,
         error: null,
+        hydrated: true,
         authToken: session.authToken,
         walletUriBase: session.walletUriBase,
       }));
+
+      await persistWalletSession({
+        publicKeyBase58: session.publicKey.toBase58(),
+        authToken: session.authToken,
+        walletUriBase: session.walletUriBase,
+        lastConnectedAt: Date.now(),
+      });
 
       return session;
     },
@@ -180,6 +246,7 @@ export function WalletProvider({ children }: { children: ReactNode }): React.JSX
       setState(s => ({
         ...s,
         connecting: false,
+        hydrated: true,
         error: toWalletErrorMessage(err),
       }));
     }
@@ -198,11 +265,14 @@ export function WalletProvider({ children }: { children: ReactNode }): React.JSX
       });
     }
 
+    void clearWalletSession();
+
     setState({
       connected: false,
       publicKey: null,
       connecting: false,
       error: null,
+      hydrated: true,
       authToken: null,
       walletUriBase: null,
     });
@@ -217,25 +287,57 @@ export function WalletProvider({ children }: { children: ReactNode }): React.JSX
       throw new Error(PROGRAM_NOT_DEPLOYED_MESSAGE);
     }
 
+    // Fetch blockhash BEFORE opening wallet session to minimize session time.
+    const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('processed');
+
+    let signature: string;
+
     try {
-      return await transact(
+      signature = await transact(
         async wallet => {
-          const session = await authorizeWallet(wallet);
-          const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
+          // Use silent reauthorize when we have a saved auth_token.
+          // This avoids showing the wallet authorization UI on every transaction.
+          let session: AuthorizedWalletSession;
+          if (state.authToken) {
+            try {
+              const reauth = await wallet.reauthorize({
+                auth_token: state.authToken,
+                identity: APP_IDENTITY,
+              });
+              session = toAuthorizedSession(reauth, state.walletUriBase);
+              // Persist refreshed token silently
+              setState(current => ({
+                ...current,
+                authToken: session.authToken,
+                walletUriBase: session.walletUriBase,
+              }));
+              void persistWalletSession({
+                publicKeyBase58: session.publicKey.toBase58(),
+                authToken: session.authToken,
+                walletUriBase: session.walletUriBase,
+                lastConnectedAt: Date.now(),
+              });
+            } catch {
+              // Token expired or invalid — fall back to full authorize
+              session = await authorizeWallet(wallet);
+            }
+          } else {
+            session = await authorizeWallet(wallet);
+          }
+
           const capabilities = await wallet.getCapabilities();
           const features = new Set<string>(capabilities.features as string[] | undefined);
 
           transaction.feePayer = transaction.feePayer ?? session.publicKey;
           transaction.recentBlockhash = blockhash;
 
-          let signature: string | undefined;
+          let sig: string | undefined;
 
-          if (capabilities.supports_sign_and_send_transactions) {
-            [signature] = await wallet.signAndSendTransactions({
-              transactions: [transaction],
-              commitment: 'confirmed',
-            });
-          } else if (features.has(SOLANA_SIGN_TRANSACTIONS_FEATURE)) {
+          // Prefer signTransactions over signAndSendTransactions.
+          // With signTransactions the wallet returns the signed tx immediately
+          // and we submit it ourselves — avoiding the wallet's internal
+          // blockhash-staleness check that causes "Transaction expired".
+          if (features.has(SOLANA_SIGN_TRANSACTIONS_FEATURE)) {
             const [signedTransaction] = await wallet.signTransactions({
               transactions: [transaction],
             });
@@ -244,27 +346,24 @@ export function WalletProvider({ children }: { children: ReactNode }): React.JSX
               throw new Error('Wallet did not return a signed transaction');
             }
 
-            signature = await connection.sendRawTransaction(signedTransaction.serialize(), {
+            sig = await connection.sendRawTransaction(signedTransaction.serialize(), {
+              skipPreflight: true,
               preflightCommitment: 'confirmed',
+            });
+          } else if (capabilities.supports_sign_and_send_transactions) {
+            [sig] = await wallet.signAndSendTransactions({
+              transactions: [transaction],
+              commitment: 'confirmed',
             });
           } else {
             throw new Error('This wallet does not support transaction submission for Thinkxx.');
           }
 
-          if (!signature) {
+          if (!sig) {
             throw new Error('Wallet did not return a transaction signature');
           }
 
-          const confirmation = await connection.confirmTransaction(
-            { signature, blockhash, lastValidBlockHeight },
-            'confirmed'
-          );
-
-          if (confirmation.value.err) {
-            throw new Error(`Transaction failed: ${JSON.stringify(confirmation.value.err)}`);
-          }
-
-          return signature;
+          return sig;
         },
         state.walletUriBase ? { baseUri: state.walletUriBase } : undefined
       );
@@ -273,11 +372,39 @@ export function WalletProvider({ children }: { children: ReactNode }): React.JSX
       setState(current => ({ ...current, error: message }));
       throw new Error(message);
     }
-  }, [authorizeWallet, connection, state.connected, state.walletUriBase]);
+
+    // Confirm OUTSIDE transact() — MWA session is already closed,
+    // so the wallet app is no longer blocking the user.
+    const confirmation = await connection.confirmTransaction(
+      { signature, blockhash, lastValidBlockHeight },
+      'confirmed'
+    );
+
+    if (confirmation.value.err) {
+      throw new Error(`Transaction failed: ${JSON.stringify(confirmation.value.err)}`);
+    }
+
+    return signature;
+  }, [authorizeWallet, connection, state.authToken, state.connected, state.walletUriBase]);
 
   const shortAddress = state.publicKey
     ? `${state.publicKey.toBase58().slice(0, 4)}...${state.publicKey.toBase58().slice(-4)}`
     : null;
+
+  // Derive wallet label from wallet_uri_base, e.g. "phantom" from "https://phantom.app/..."
+  const walletLabel = useMemo(() => {
+    if (!state.walletUriBase) return null;
+    try {
+      const host = new URL(state.walletUriBase).hostname;
+      // Strip common TLD patterns: "phantom.app" → "Phantom"
+      const name = host.split('.')[0] ?? host;
+      return name.charAt(0).toUpperCase() + name.slice(1);
+    } catch {
+      return state.walletUriBase;
+    }
+  }, [state.walletUriBase]);
+
+  const rpcEndpoint = NETWORK_CONFIG[CLUSTER.DEVNET].rpcEndpoint;
 
   const value: WalletContextValue = {
     ...state,
@@ -286,6 +413,8 @@ export function WalletProvider({ children }: { children: ReactNode }): React.JSX
     disconnect,
     signAndSendTransaction,
     shortAddress,
+    walletLabel,
+    rpcEndpoint,
   };
 
   return (

@@ -1,20 +1,23 @@
 /** @type {import('jest').Config} */
+const resolveFromMobile = packageName =>
+  require.resolve(packageName, { paths: [__dirname] });
+
 module.exports = {
   // Use jsdom for renderHook / render support
   testEnvironment: 'jsdom',
   transform: {
     '^.+\\.(ts|tsx)$': ['babel-jest', {
       presets: [
-        ['@babel/preset-env', { targets: { node: 'current' } }],
-        '@babel/preset-typescript',
-        ['@babel/preset-react', { runtime: 'automatic' }],
+        [resolveFromMobile('@babel/preset-env'), { targets: { node: 'current' } }],
+        resolveFromMobile('@babel/preset-typescript'),
+        [resolveFromMobile('@babel/preset-react'), { runtime: 'automatic' }],
       ],
     }],
     '^.+\\.(js|jsx)$': ['babel-jest', {
       presets: [
-        ['@babel/preset-env', { targets: { node: 'current' } }],
-        '@babel/preset-flow',
-        ['@babel/preset-react', { runtime: 'automatic' }],
+        [resolveFromMobile('@babel/preset-env'), { targets: { node: 'current' } }],
+        resolveFromMobile('@babel/preset-flow'),
+        [resolveFromMobile('@babel/preset-react'), { runtime: 'automatic' }],
       ],
     }],
   },

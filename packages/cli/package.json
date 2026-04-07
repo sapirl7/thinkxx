@@ -1,6 +1,6 @@
 {
   "name": "@thinkxx/cli",
-  "version": "0.1.0",
+  "version": "0.1.0-devnet",
   "private": true,
   "description": "Emergency CLI tool for Thinkxx Lifeline protocol",
   "main": "dist/index.js",

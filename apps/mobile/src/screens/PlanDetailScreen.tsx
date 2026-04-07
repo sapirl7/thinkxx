@@ -1,248 +1,382 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
-  View,
-  Text,
+  ActivityIndicator,
+  Alert,
   StyleSheet,
+  Text,
   TouchableOpacity,
-  ScrollView,
+  View,
 } from 'react-native';
-import { COLORS, SPACING, FONT_SIZES, BORDER_RADIUS } from '../theme';
+import { LAMPORTS_PER_SOL, PublicKey, Transaction } from '@solana/web3.js';
+import {
+  deriveGuardianSetPda,
+  deriveSolVaultPda,
+  fetchGuardianSet,
+  fetchPlan,
+  PlanMode,
+  PlanState,
+  ThinkxxClient,
+} from '@thinkxx/sdk';
+import type { ParsedGuardianSet, PlanAccountData } from '@thinkxx/sdk';
+import { useWallet } from '../providers/WalletProvider';
+import ScreenShell from '../components/ScreenShell';
+import { readBalanceWithRetry, retryRpcRead, toRpcReadMessage } from '../lib/rpc';
+import {
+  AddressBlock,
+  KeyValueRow,
+  Panel,
+  PrimaryButton,
+  SectionHeading,
+  SecondaryButton,
+  StatusPill,
+} from '../components/Primitives';
+import { theme } from '../theme';
 
 interface PlanDetailScreenProps {
+  planAddress: string;
   onBack: () => void;
-  onGuardians: () => void;
+  onGuardians: (planAddress: string) => void;
+  onHeartbeat: (planAddress: string) => void;
+  onDeposit: (planAddress: string) => void;
 }
 
-type PlanState = 'Draft' | 'Active' | 'Paused' | 'ClaimPending' | 'Claimed' | 'Cancelled';
-
-const STATE_COLORS: Record<PlanState, string> = {
-  Draft: '#6E7681',
-  Active: COLORS.success,
-  Paused: '#D29922',
-  ClaimPending: COLORS.danger,
-  Claimed: '#00BFA6',
-  Cancelled: '#6E7681',
+const MODE_LABELS: Record<number, string> = {
+  [PlanMode.Medical]: 'Medical',
+  [PlanMode.LegalRisk]: 'Legal Risk',
+  [PlanMode.Legacy]: 'Legacy',
 };
 
-export default function PlanDetailScreen({ onBack, onGuardians }: PlanDetailScreenProps): React.JSX.Element {
-  const [planState] = useState<PlanState>('Active');
+const STATE_LABELS: Record<number, string> = {
+  [PlanState.Draft]: 'Draft',
+  [PlanState.Active]: 'Active',
+  [PlanState.ClaimPending]: 'Claim Pending',
+  [PlanState.ClaimApproved]: 'Approved',
+  [PlanState.Claimed]: 'Claimed',
+  [PlanState.Cancelled]: 'Cancelled',
+  [PlanState.Paused]: 'Paused',
+};
 
-  const planData = {
-    mode: 'Medical',
-    beneficiary: 'B7n4...xK9r',
-    backupBeneficiary: 'None',
-    inactivity: '2 days',
-    grace: '1 day',
-    lastHeartbeat: '2 min ago',
-    vaultBalance: '5.250 SOL',
-    emergencyBucket: '0.500 SOL',
-    guardians: 3,
-    quorum: 2,
-    createdAt: 'Mar 8, 2026',
-  };
-
-  return (
-    <View style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={onBack} style={styles.backBtn}>
-          <Text style={styles.backText}>← Back</Text>
-        </TouchableOpacity>
-        <Text style={styles.title}>Plan Details</Text>
-        <View style={styles.backBtn} />
-      </View>
-
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        {/* Status Badge */}
-        <View style={styles.statusCard}>
-          <View style={[styles.statusBadge, { backgroundColor: STATE_COLORS[planState] + '20' }]}>
-            <View style={[styles.statusDot, { backgroundColor: STATE_COLORS[planState] }]} />
-            <Text style={[styles.statusText, { color: STATE_COLORS[planState] }]}>{planState}</Text>
-          </View>
-          <Text style={styles.modeLabel}>{planData.mode} Mode</Text>
-        </View>
-
-        {/* Vault */}
-        <View style={styles.vaultCard}>
-          <Text style={styles.vaultLabel}>Vault Balance</Text>
-          <Text style={styles.vaultAmount}>{planData.vaultBalance}</Text>
-          <View style={styles.vaultRow}>
-            <Text style={styles.vaultSubtext}>Emergency: {planData.emergencyBucket}</Text>
-          </View>
-          <View style={styles.vaultActions}>
-            <TouchableOpacity style={styles.vaultBtn}>
-              <Text style={styles.vaultBtnText}>📥 Deposit</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[styles.vaultBtn, styles.vaultBtnSecondary]}>
-              <Text style={styles.vaultBtnSecondaryText}>🆘 Emergency</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        {/* Heartbeat */}
-        <View style={styles.heartbeatCard}>
-          <View style={styles.heartbeatHeader}>
-            <Text style={styles.heartbeatIcon}>💓</Text>
-            <View>
-              <Text style={styles.heartbeatLabel}>Last Heartbeat</Text>
-              <Text style={styles.heartbeatValue}>{planData.lastHeartbeat}</Text>
-            </View>
-          </View>
-          <TouchableOpacity style={styles.heartbeatBtn}>
-            <Text style={styles.heartbeatBtnText}>Send Heartbeat</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* Details Grid */}
-        <Text style={styles.sectionTitle}>Configuration</Text>
-        <View style={styles.detailsGrid}>
-          <DetailRow label="Beneficiary" value={planData.beneficiary} mono />
-          <DetailRow label="Backup" value={planData.backupBeneficiary} />
-          <DetailRow label="Inactivity Window" value={planData.inactivity} />
-          <DetailRow label="Grace Period" value={planData.grace} />
-          <DetailRow label="Created" value={planData.createdAt} />
-        </View>
-
-        {/* Guardians */}
-        <TouchableOpacity style={styles.guardiansCard} onPress={onGuardians}>
-          <View style={styles.guardiansLeft}>
-            <Text style={styles.guardiansIcon}>🛡️</Text>
-            <View>
-              <Text style={styles.guardiansLabel}>Guardians</Text>
-              <Text style={styles.guardiansValue}>
-                {planData.guardians} guardians • Quorum: {planData.quorum}
-              </Text>
-            </View>
-          </View>
-          <Text style={styles.chevron}>›</Text>
-        </TouchableOpacity>
-
-        {/* Actions */}
-        <Text style={styles.sectionTitle}>Actions</Text>
-        <View style={styles.actionsGrid}>
-          <TouchableOpacity style={styles.actionBtn}>
-            <Text style={styles.actionIcon}>⏸</Text>
-            <Text style={styles.actionText}>Pause Plan</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.actionBtn}>
-            <Text style={styles.actionIcon}>✏️</Text>
-            <Text style={styles.actionText}>Edit Timing</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.actionBtn}>
-            <Text style={styles.actionIcon}>👤</Text>
-            <Text style={styles.actionText}>Update Beneficiary</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.actionBtn, styles.dangerAction]}>
-            <Text style={styles.actionIcon}>🗑</Text>
-            <Text style={[styles.actionText, styles.dangerText]}>Close Plan</Text>
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.bottomSpacer} />
-      </ScrollView>
-    </View>
-  );
+function stateTone(state: number): 'primary' | 'success' | 'warning' | 'danger' | 'neutral' {
+  switch (state) {
+    case PlanState.Active:
+      return 'success';
+    case PlanState.ClaimApproved:
+    case PlanState.Paused:
+      return 'warning';
+    case PlanState.ClaimPending:
+      return 'danger';
+    case PlanState.Claimed:
+      return 'primary';
+    default:
+      return 'neutral';
+  }
 }
 
-function DetailRow({ label, value, mono }: { label: string; value: string; mono?: boolean }): React.JSX.Element {
+function formatTimeSince(timestamp: bigint): string {
+  const value = Number(timestamp);
+  if (!Number.isFinite(value) || value <= 0) {
+    return 'No heartbeat yet';
+  }
+
+  const seconds = Math.floor(Date.now() / 1000) - Number(timestamp);
+  if (!Number.isFinite(seconds) || seconds < 0) {
+    return 'Heartbeat unavailable';
+  }
+  if (seconds < 60) return `${seconds}s ago`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+  return `${Math.floor(seconds / 86400)}d ago`;
+}
+
+export default function PlanDetailScreen({
+  planAddress,
+  onBack,
+  onGuardians,
+  onHeartbeat,
+  onDeposit,
+}: PlanDetailScreenProps): React.JSX.Element {
+  const { connection, publicKey, signAndSendTransaction } = useWallet();
+  const [plan, setPlan] = useState<PlanAccountData | null>(null);
+  const [guardianSet, setGuardianSet] = useState<ParsedGuardianSet | null>(null);
+  const [vaultBalance, setVaultBalance] = useState<number>(0);
+  const [loading, setLoading] = useState(true);
+  const [acting, setActing] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  const planPda = useMemo(() => new PublicKey(planAddress), [planAddress]);
+
+  const fetchData = useCallback(async () => {
+    setLoadError(null);
+
+    try {
+      const planData = await retryRpcRead(() => fetchPlan(connection, planPda));
+      if (!planData) {
+        setPlan(null);
+        setGuardianSet(null);
+        setLoadError('Plan account not found on devnet.');
+        return;
+      }
+      setPlan(planData);
+
+      const [gsPda] = deriveGuardianSetPda(planPda);
+      const gs = await retryRpcRead(() => fetchGuardianSet(connection, gsPda));
+      setGuardianSet(gs);
+
+      const [solVaultPda] = deriveSolVaultPda(planPda);
+      const vaultLamports = await readBalanceWithRetry(connection, solVaultPda, 'confirmed');
+      setVaultBalance(vaultLamports / LAMPORTS_PER_SOL);
+    } catch (err) {
+      setPlan(null);
+      setGuardianSet(null);
+      setLoadError(toRpcReadMessage(err, 'Failed to fetch plan.'));
+    } finally {
+      setLoading(false);
+    }
+  }, [connection, planPda]);
+
+  useEffect(() => {
+    setLoading(true);
+    void fetchData();
+  }, [fetchData]);
+
+  const handlePauseResume = useCallback(async () => {
+    if (!plan || !publicKey) return;
+    setActing(true);
+    try {
+      const client = new ThinkxxClient(connection);
+      const isPaused = plan.state === PlanState.Paused;
+      const instruction = isPaused
+        ? client.buildResumePlan(publicKey, planPda)
+        : client.buildPausePlan(publicKey, planPda);
+      await signAndSendTransaction(new Transaction().add(instruction));
+      Alert.alert('Success', isPaused ? 'Plan resumed.' : 'Plan paused.');
+      await fetchData();
+    } catch (err) {
+      Alert.alert('Error', err instanceof Error ? err.message : 'Transaction failed');
+    } finally {
+      setActing(false);
+    }
+  }, [connection, fetchData, plan, planPda, publicKey, signAndSendTransaction]);
+
+  if (loading) {
+    return (
+      <ScreenShell
+        title="Plan Detail"
+        subtitle="Resolving plan state from chain."
+        eyebrow="Owner flow / plan detail"
+        onBack={onBack}
+      >
+        <Panel>
+          <View style={styles.loadingState}>
+            <ActivityIndicator color={theme.colors.primary} size="large" />
+            <Text style={styles.loadingText}>Loading plan...</Text>
+          </View>
+        </Panel>
+      </ScreenShell>
+    );
+  }
+
+  if (!plan) {
+    return (
+      <ScreenShell
+        title="Plan Detail"
+        subtitle="Selected plan is unavailable."
+        eyebrow="Owner flow / plan detail"
+        onBack={onBack}
+      >
+        <Panel tone="danger">
+          <SectionHeading
+            label="Plan not found"
+            action={<SecondaryButton label="Retry" tone="danger" onPress={() => void fetchData()} />}
+          />
+          <Text style={styles.emptyText}>{loadError ?? 'Return to Dashboard and sync plans again.'}</Text>
+        </Panel>
+      </ScreenShell>
+    );
+  }
+
+  const stateLabel = STATE_LABELS[plan.state] ?? 'Unknown';
+  const modeLabel = MODE_LABELS[plan.mode] ?? 'Unknown';
+  const emergencySol = Number(plan.emergencyBucketLamports) / LAMPORTS_PER_SOL;
+  const isPausable = plan.state === PlanState.Active;
+  const isResumable = plan.state === PlanState.Paused;
+
   return (
-    <View style={styles.detailRow}>
-      <Text style={styles.detailLabel}>{label}</Text>
-      <Text style={[styles.detailValue, mono && styles.monoText]}>{value}</Text>
-    </View>
+    <ScreenShell
+      title="Plan Detail"
+      subtitle={`${modeLabel} mode • owner-side controls for the selected plan account.`}
+      eyebrow="Owner flow / plan detail"
+      onBack={onBack}
+      scroll
+      contentContainerStyle={styles.content}
+    >
+      <Panel tone={stateTone(plan.state)}>
+        <SectionHeading label="Plan status" />
+        <StatusPill label={stateLabel} tone={stateTone(plan.state)} />
+        <Text style={styles.vaultLabel}>Vault Balance</Text>
+        <Text style={styles.statusHeadline}>{vaultBalance.toFixed(4)} SOL</Text>
+        <Text style={styles.statusSubline}>Emergency cap: {emergencySol.toFixed(4)} SOL</Text>
+        <AddressBlock
+          label="Plan account"
+          address={planAddress}
+          helper={`Last heartbeat: ${formatTimeSince(plan.lastHeartbeat)}`}
+        />
+      </Panel>
+
+      <View style={styles.actionsRow}>
+        <PrimaryButton label="Deposit" onPress={() => onDeposit(planAddress)} style={styles.actionButton} />
+        <SecondaryButton
+          label="Emergency cap"
+          tone="danger"
+          badge="Coming Soon"
+          disabled
+          style={styles.actionButton}
+        />
+      </View>
+
+      <Panel tone="success">
+        <SectionHeading label="Owner heartbeat" />
+        <Text style={styles.heartbeatValue}>{formatTimeSince(plan.lastHeartbeat)}</Text>
+        <Text style={styles.heartbeatCaption}>
+          Heartbeat refreshes the inactivity timer that protects this plan.
+        </Text>
+        <PrimaryButton label="Send Heartbeat" onPress={() => onHeartbeat(planAddress)} />
+      </Panel>
+
+      <Panel>
+        <SectionHeading label="Configuration" />
+        <KeyValueRow label="Mode" value={modeLabel} />
+        <KeyValueRow label="Inactivity Window" value={`${Math.round(Number(plan.inactivityDuration) / 86400)} days`} />
+        <KeyValueRow label="Grace Period" value={`${Math.round(Number(plan.gracePeriod) / 86400)} days`} />
+        <KeyValueRow label="Guardian quorum" value={`${guardianSet?.quorum ?? plan.guardianQuorum}`} />
+        <KeyValueRow
+          label="Created"
+          value={
+            Number.isFinite(Number(plan.createdAt)) && Number(plan.createdAt) > 0
+              ? new Date(Number(plan.createdAt) * 1000).toLocaleDateString()
+              : 'Unknown'
+          }
+        />
+      </Panel>
+
+      <Panel>
+        <SectionHeading label="Beneficiaries" />
+        <AddressBlock
+          label="Primary Beneficiary"
+          address={plan.beneficiary.toBase58()}
+          helper="This wallet can start a claim only after inactivity and grace rules allow it."
+        />
+        <AddressBlock
+          label="Backup Beneficiary"
+          address={plan.backupBeneficiary?.toBase58() ?? null}
+          helper={
+            plan.backupBeneficiary
+              ? 'Backup beneficiary is available if the primary beneficiary cannot act.'
+              : 'No backup beneficiary configured for this plan.'
+          }
+        />
+      </Panel>
+
+      <TouchableOpacity activeOpacity={0.82} onPress={() => onGuardians(planAddress)}>
+        <Panel>
+          <SectionHeading label="Guardians" action={<Text style={styles.chevron}>Open</Text>} />
+          <Text style={styles.guardiansValue}>
+            {guardianSet?.guardians.length ?? 0} guardians • quorum {guardianSet?.quorum ?? plan.guardianQuorum}
+          </Text>
+          <Text style={styles.guardiansHelper}>
+            Review addresses, add new guardians, or remove stale ones from the selected plan.
+          </Text>
+        </Panel>
+      </TouchableOpacity>
+
+      <View style={styles.futureActions}>
+        {(isPausable || isResumable) ? (
+          <SecondaryButton
+            label={isPausable ? 'Pause Plan' : 'Resume Plan'}
+            tone={isPausable ? 'warning' : 'success'}
+            onPress={handlePauseResume}
+            disabled={acting}
+          />
+        ) : null}
+        <SecondaryButton label="Edit Timing" badge="Coming Soon" disabled />
+        <SecondaryButton label="Update Beneficiary" badge="Coming Soon" disabled />
+        <SecondaryButton label="Close Plan" badge="Coming Soon" disabled />
+      </View>
+    </ScreenShell>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: COLORS.background },
-  header: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: SPACING.lg, paddingTop: SPACING.xl + 20, paddingBottom: SPACING.md,
+  content: {
+    gap: theme.spacing.lg,
   },
-  backBtn: { width: 60 },
-  backText: { color: COLORS.accent, fontSize: FONT_SIZES.md },
-  title: { color: COLORS.textPrimary, fontSize: FONT_SIZES.xl, fontWeight: '700' },
-  content: { flex: 1 },
-  statusCard: {
-    alignItems: 'center', marginHorizontal: SPACING.lg, marginTop: SPACING.sm,
-    backgroundColor: COLORS.surface, borderRadius: BORDER_RADIUS.lg, padding: SPACING.lg,
-  },
-  statusBadge: {
-    flexDirection: 'row', alignItems: 'center',
-    paddingHorizontal: SPACING.md, paddingVertical: SPACING.xs, borderRadius: 20,
-  },
-  statusDot: { width: 8, height: 8, borderRadius: 4, marginRight: SPACING.xs },
-  statusText: { fontSize: FONT_SIZES.md, fontWeight: '700' },
-  modeLabel: { color: COLORS.textMuted, fontSize: FONT_SIZES.sm, marginTop: SPACING.xs },
-  vaultCard: {
-    marginHorizontal: SPACING.lg, marginTop: SPACING.md,
-    backgroundColor: COLORS.surface, borderRadius: BORDER_RADIUS.lg, padding: SPACING.lg,
+  loadingState: {
+    minHeight: 180,
     alignItems: 'center',
+    justifyContent: 'center',
+    gap: theme.spacing.md,
   },
-  vaultLabel: { color: COLORS.textMuted, fontSize: FONT_SIZES.sm },
-  vaultAmount: { color: COLORS.textPrimary, fontSize: 36, fontWeight: '700', marginTop: SPACING.xs },
-  vaultRow: { marginTop: SPACING.xs },
-  vaultSubtext: { color: COLORS.textMuted, fontSize: FONT_SIZES.xs },
-  vaultActions: { flexDirection: 'row', gap: SPACING.sm, marginTop: SPACING.md, width: '100%' },
-  vaultBtn: {
-    flex: 1, backgroundColor: COLORS.accent, borderRadius: BORDER_RADIUS.md,
-    paddingVertical: SPACING.sm, alignItems: 'center',
+  loadingText: {
+    color: theme.colors.textSecondary,
+    fontSize: theme.fontSize.sm,
   },
-  vaultBtnText: { color: '#000', fontWeight: '700' },
-  vaultBtnSecondary: { backgroundColor: COLORS.danger + '20' },
-  vaultBtnSecondaryText: { color: COLORS.danger, fontWeight: '700' },
-  heartbeatCard: {
-    marginHorizontal: SPACING.lg, marginTop: SPACING.md,
-    backgroundColor: COLORS.surface, borderRadius: BORDER_RADIUS.lg, padding: SPACING.md,
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+  emptyText: {
+    color: theme.colors.textSecondary,
+    fontSize: theme.fontSize.sm,
+    lineHeight: 20,
   },
-  heartbeatHeader: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm },
-  heartbeatIcon: { fontSize: 28 },
-  heartbeatLabel: { color: COLORS.textMuted, fontSize: FONT_SIZES.xs },
-  heartbeatValue: { color: COLORS.success, fontSize: FONT_SIZES.md, fontWeight: '600' },
-  heartbeatBtn: {
-    backgroundColor: COLORS.success + '20', borderRadius: BORDER_RADIUS.md,
-    paddingHorizontal: SPACING.md, paddingVertical: SPACING.sm,
+  statusHeadline: {
+    color: theme.colors.text,
+    fontSize: 34,
+    lineHeight: 40,
+    fontWeight: theme.fontWeight.bold,
   },
-  heartbeatBtnText: { color: COLORS.success, fontWeight: '700', fontSize: FONT_SIZES.sm },
-  sectionTitle: {
-    color: COLORS.textMuted, fontSize: FONT_SIZES.xs, fontWeight: '600',
-    textTransform: 'uppercase', letterSpacing: 1,
-    marginHorizontal: SPACING.lg, marginTop: SPACING.lg, marginBottom: SPACING.xs,
+  vaultLabel: {
+    color: theme.colors.textMuted,
+    fontSize: theme.fontSize.xs,
+    fontWeight: theme.fontWeight.bold,
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
   },
-  detailsGrid: {
-    backgroundColor: COLORS.surface, borderRadius: BORDER_RADIUS.lg,
-    marginHorizontal: SPACING.lg, overflow: 'hidden',
+  statusSubline: {
+    color: theme.colors.textSecondary,
+    fontSize: theme.fontSize.sm,
   },
-  detailRow: {
-    flexDirection: 'row', justifyContent: 'space-between',
-    paddingHorizontal: SPACING.md, paddingVertical: SPACING.sm + 2,
-    borderBottomWidth: 0.5, borderBottomColor: COLORS.background,
+  actionsRow: {
+    flexDirection: 'row',
+    gap: theme.spacing.md,
   },
-  detailLabel: { color: COLORS.textMuted, fontSize: FONT_SIZES.sm },
-  detailValue: { color: COLORS.textPrimary, fontSize: FONT_SIZES.sm, fontWeight: '500' },
-  monoText: { fontFamily: 'monospace' },
-  guardiansCard: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    marginHorizontal: SPACING.lg, marginTop: SPACING.md,
-    backgroundColor: COLORS.surface, borderRadius: BORDER_RADIUS.lg, padding: SPACING.md,
+  actionButton: {
+    flex: 1,
   },
-  guardiansLeft: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm },
-  guardiansIcon: { fontSize: 24 },
-  guardiansLabel: { color: COLORS.textPrimary, fontSize: FONT_SIZES.md, fontWeight: '600' },
-  guardiansValue: { color: COLORS.textMuted, fontSize: FONT_SIZES.xs },
-  chevron: { color: COLORS.textMuted, fontSize: 24 },
-  actionsGrid: {
-    flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.sm,
-    marginHorizontal: SPACING.lg,
+  heartbeatValue: {
+    color: theme.colors.text,
+    fontSize: 28,
+    lineHeight: 32,
+    fontWeight: theme.fontWeight.bold,
   },
-  actionBtn: {
-    width: '48%', backgroundColor: COLORS.surface, borderRadius: BORDER_RADIUS.md,
-    padding: SPACING.md, alignItems: 'center',
+  heartbeatCaption: {
+    color: theme.colors.textSecondary,
+    fontSize: theme.fontSize.sm,
+    lineHeight: 20,
   },
-  actionIcon: { fontSize: 24, marginBottom: SPACING.xs },
-  actionText: { color: COLORS.textPrimary, fontSize: FONT_SIZES.sm, fontWeight: '500' },
-  dangerAction: { borderWidth: 1, borderColor: COLORS.danger + '30' },
-  dangerText: { color: COLORS.danger },
-  bottomSpacer: { height: 40 },
+  chevron: {
+    color: theme.colors.primaryLight,
+    fontSize: theme.fontSize.sm,
+    fontWeight: theme.fontWeight.bold,
+    textTransform: 'uppercase',
+  },
+  guardiansValue: {
+    color: theme.colors.text,
+    fontSize: theme.fontSize.lg,
+    fontWeight: theme.fontWeight.bold,
+  },
+  guardiansHelper: {
+    color: theme.colors.textSecondary,
+    fontSize: theme.fontSize.sm,
+    lineHeight: 20,
+  },
+  futureActions: {
+    gap: theme.spacing.md,
+  },
 });

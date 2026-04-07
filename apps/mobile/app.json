@@ -2,7 +2,7 @@
   "expo": {
     "name": "Thinkxx",
     "slug": "thinkxx",
-    "version": "0.3.0",
+    "version": "0.1.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -45,7 +45,7 @@
     "extra": {
       "solana": {
         "cluster": "devnet",
-        "programId": "THINKXX1111111111111111111111111111111111111"
+        "programId": "5FEoFcJ2QK7T8SFDX7jKtCfSKvfGhE8QDRLVH2xSWvaP"
       }
     }
   }

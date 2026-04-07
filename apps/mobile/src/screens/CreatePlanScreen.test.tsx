@@ -13,6 +13,7 @@ import { resetMobileMocks, mockAlert } from '../../test/setup';
 // Mock useWallet
 const mockSignAndSendTransaction = jest.fn().mockResolvedValue('mock-sig');
 const mockPublicKey = PublicKey.default;
+const mockFetchPlan = jest.fn();
 
 jest.mock('../providers/WalletProvider', () => ({
   useWallet: () => ({
@@ -27,10 +28,11 @@ jest.mock('../providers/WalletProvider', () => ({
 jest.mock('@thinkxx/sdk', () => ({
   ThinkxxClient: jest.fn().mockImplementation(() => ({
     buildInitializePlan: jest.fn().mockReturnValue({
-      instruction: { programId: mockPublicKey, keys: [], data: Buffer.alloc(8) },
+      instruction: { programId: mockPublicKey, keys: [], data: new Uint8Array(8) },
       planPda: mockPublicKey,
     }),
   })),
+  fetchPlan: (...args: unknown[]) => mockFetchPlan(...args),
   PlanMode: { Medical: 0, LegalRisk: 1, Legacy: 2 },
 }));
 
@@ -44,6 +46,10 @@ beforeEach(() => {
   onBack.mockReset();
   onCreated.mockReset();
   mockSignAndSendTransaction.mockReset().mockResolvedValue('mock-sig');
+  mockFetchPlan.mockReset().mockResolvedValue({
+    owner: jest.requireActual('@solana/web3.js').PublicKey.default,
+    planId: 1n,
+  });
 });
 
 describe('CreatePlanScreen', () => {
@@ -68,6 +74,68 @@ describe('CreatePlanScreen', () => {
     // Need to trigger handleCreate without valid beneficiary
     // Alert should be called with 'Invalid Beneficiary'
     expect(container).toBeTruthy();
+  });
+
+  it('persists created plan through onCreated after confirmed tx', async () => {
+    const { getByText, getByPlaceholderText, getAllByText } = render(
+      <CreatePlanScreen onBack={onBack} onCreated={onCreated} />
+    );
+
+    fireEvent.click(getByText('Medical'));
+    fireEvent.change(getByPlaceholderText('Solana public key (base58)'), {
+      target: { value: mockPublicKey.toBase58() },
+    });
+    const createButtons = getAllByText('Create Plan');
+    fireEvent.click(createButtons[createButtons.length - 1]);
+
+    await waitFor(() => {
+      expect(mockAlert).toHaveBeenCalledWith(
+        'Plan Created',
+        expect.any(String),
+        expect.any(Array),
+        { cancelable: false }
+      );
+    });
+
+    // Simulate pressing 'Continue' in the alert
+    const alertArgs = mockAlert.mock.calls[0];
+    const continueButton = alertArgs[2][0];
+    continueButton.onPress();
+
+    expect(onCreated).toHaveBeenCalledWith(mockPublicKey.toBase58());
+  });
+
+  it('treats 429 after submit as pending sync instead of hard failure', async () => {
+    mockFetchPlan.mockRejectedValue(
+      new Error('failed to get info about account 111: Error: 429 : {"message":"Connection rate limits exceeded"}')
+    );
+
+    const { getByText, getByPlaceholderText, getAllByText } = render(
+      <CreatePlanScreen onBack={onBack} onCreated={onCreated} />
+    );
+
+    fireEvent.click(getByText('Medical'));
+    fireEvent.change(getByPlaceholderText('Solana public key (base58)'), {
+      target: { value: mockPublicKey.toBase58() },
+    });
+    const createButtons = getAllByText('Create Plan');
+    fireEvent.click(createButtons[createButtons.length - 1]);
+
+    await waitFor(() => {
+      expect(mockAlert).toHaveBeenCalledWith(
+        'Plan Submitted',
+        expect.stringContaining('RPC sync is delayed'),
+        expect.any(Array),
+        { cancelable: false }
+      );
+    }, { timeout: 8000 });
+
+    // Simulate pressing 'Continue' in the alert
+    const alertArgs = mockAlert.mock.calls[0];
+    const continueButton = alertArgs[2][0];
+    continueButton.onPress();
+
+    expect(onCreated).toHaveBeenCalledWith(mockPublicKey.toBase58());
   });
 
   // ── Timing Validation (tested via extracted logic) ──

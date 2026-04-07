@@ -1,18 +1,19 @@
 /**
- * DashboardScreen tests — render-based with mocked useWallet.
+ * DashboardScreen tests — render-based with mocked useWallet and SDK.
  *
- * Covers: synthetic plan, empty state, balance, button callbacks.
+ * Covers: balance formatting, wallet display, plan state labels.
+ * Render tests use waitFor to handle async data fetching.
  */
 
 import React from 'react';
-import { render, act, waitFor } from '@testing-library/react';
+import { render, waitFor } from '@testing-library/react';
 import { PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
 
 import { resetMobileMocks } from '../../test/setup';
 
-// Must prefix with 'mock' for jest.mock() factory scoping
 const mockPublicKeyDefault = PublicKey.default;
-const mockGetBalance = jest.fn();
+const mockGetBalance = jest.fn().mockResolvedValue(5_000_000_000);
+const mockFetchPlansByOwner = jest.fn().mockResolvedValue([]);
 
 jest.mock('../providers/WalletProvider', () => ({
   useWallet: () => ({
@@ -22,76 +23,103 @@ jest.mock('../providers/WalletProvider', () => ({
     disconnect: jest.fn(),
     connection: {
       getBalance: mockGetBalance,
+      getProgramAccounts: jest.fn().mockResolvedValue([]),
+      getAccountInfo: jest.fn().mockResolvedValue(null),
     },
   }),
 }));
+
+jest.mock('@thinkxx/sdk', () => {
+  const actual = jest.requireActual('@thinkxx/sdk');
+  return {
+    ...actual,
+    fetchPlansByOwner: (...args: unknown[]) => mockFetchPlansByOwner(...args),
+  };
+});
 
 import DashboardScreen from './DashboardScreen';
 
 const mockOnCreatePlan = jest.fn();
 const mockOnHeartbeat = jest.fn();
 const mockOnSettings = jest.fn();
+const mockOnPlanDetail = jest.fn();
+const mockOnDeposit = jest.fn();
+
+const defaultProps = {
+  onCreatePlan: mockOnCreatePlan,
+  onHeartbeat: mockOnHeartbeat,
+  onSettings: mockOnSettings,
+  onPlanDetail: mockOnPlanDetail,
+  onDeposit: mockOnDeposit,
+  selectedPlanAddress: null as string | null,
+  lastCreatedPlanAddress: null as string | null,
+};
 
 beforeEach(() => {
   resetMobileMocks();
   mockOnCreatePlan.mockReset();
   mockOnHeartbeat.mockReset();
   mockOnSettings.mockReset();
+  mockOnPlanDetail.mockReset();
+  mockOnDeposit.mockReset();
   mockGetBalance.mockReset().mockResolvedValue(5_000_000_000);
+  mockFetchPlansByOwner.mockReset().mockResolvedValue([]);
 });
 
 describe('DashboardScreen', () => {
-  it('renders with lastPlanAddress → shows synthetic plan card, no "No plans yet"', async () => {
-    const planAddr = 'PlanAddr123456789012345678901234567890Abc';
-    let container: HTMLElement;
-    await act(async () => {
-      const result = render(
-        <DashboardScreen
-          onCreatePlan={mockOnCreatePlan}
-          onHeartbeat={mockOnHeartbeat}
-          onSettings={mockOnSettings}
-          lastPlanAddress={planAddr}
-        />,
-      );
-      container = result.container;
-    });
-    expect(container!.textContent).toContain('Your Plans');
-    expect(container!.textContent).not.toContain('No plans yet');
+  it('renders header and section titles', async () => {
+    const { container } = render(<DashboardScreen {...defaultProps} />);
+    await waitFor(
+      () => expect(container.textContent).toContain('Thinkxx'),
+      { timeout: 3000 },
+    );
+    expect(container.textContent).toContain('Your Plans');
+    expect(container.textContent).toContain('Quick Actions');
   });
 
-  it('renders empty state when no lastPlanAddress', async () => {
-    let container: HTMLElement;
-    await act(async () => {
-      const result = render(
-        <DashboardScreen
-          onCreatePlan={mockOnCreatePlan}
-          onHeartbeat={mockOnHeartbeat}
-          onSettings={mockOnSettings}
-          lastPlanAddress={null}
-        />,
-      );
-      container = result.container;
-    });
-    expect(container!.textContent).toContain('No plans yet');
+  it('renders wallet short address', async () => {
+    const { container } = render(<DashboardScreen {...defaultProps} />);
+    await waitFor(
+      () => expect(container.textContent).toContain('11111...1111'),
+      { timeout: 3000 },
+    );
   });
 
-  it('shows short wallet address', async () => {
-    let container: HTMLElement;
-    await act(async () => {
-      const result = render(
-        <DashboardScreen
-          onCreatePlan={mockOnCreatePlan}
-          onHeartbeat={mockOnHeartbeat}
-          onSettings={mockOnSettings}
-          lastPlanAddress={null}
-        />,
-      );
-      container = result.container;
-    });
-    expect(container!.textContent).toContain('11111...1111');
+  it('shows empty state when no plans and no selected plan context', async () => {
+    const { container } = render(<DashboardScreen {...defaultProps} />);
+    await waitFor(
+      () => expect(container.textContent).toContain('No plans yet'),
+      { timeout: 3000 },
+    );
   });
 
-  // ── Balance formatting logic ──
+  it('shows pending sync card when last created plan exists', async () => {
+    const { container } = render(
+      <DashboardScreen
+        {...defaultProps}
+        lastCreatedPlanAddress="4YgMP83QVn2zadubaCBi3btu7qnHPPaErgG95W2nxWHx"
+      />
+    );
+    await waitFor(
+      () => expect(container.textContent).toContain('Plan created, syncing...'),
+      { timeout: 3000 },
+    );
+  });
+
+  it('shows sync issue instead of empty state on RPC rate limit', async () => {
+    mockFetchPlansByOwner.mockRejectedValue(
+      new Error('429 connection rate limits exceeded')
+    );
+
+    const { container } = render(<DashboardScreen {...defaultProps} />);
+    await waitFor(
+      () => expect(container.textContent).toContain('Unable to sync plans'),
+      { timeout: 3000 },
+    );
+    expect(container.textContent).not.toContain('No plans yet');
+  });
+
+  // ── Pure logic tests (no rendering) ──
 
   it('formats SOL balance correctly', () => {
     const lamports = 1_500_000_000;
@@ -104,8 +132,6 @@ describe('DashboardScreen', () => {
     const display = balance !== null ? `${balance.toFixed(4)} SOL` : '—';
     expect(display).toBe('—');
   });
-
-  // ── Short address derivation ──
 
   it('derives short address format correctly', () => {
     const pubkey = PublicKey.default;

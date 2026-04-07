@@ -1,6 +1,7 @@
 import { Connection, PublicKey, TransactionInstruction, SystemProgram } from '@solana/web3.js';
 import { PROGRAM_ID } from '@thinkxx/config';
 import { derivePlanPda, deriveGuardianSetPda, deriveSolVaultPda, deriveVaultAuthorityPda, deriveClaimPda } from './pda';
+import { writeI64LE, writeU64LE } from './bytes';
 
 const INSTRUCTION_DISCRIMINATORS = {
   initialize_plan: Buffer.from('cfa1e6c2564da908', 'hex'),
@@ -156,7 +157,7 @@ export class ThinkxxClient {
 
     const data = Buffer.alloc(8 + 8);
     discriminator.copy(data, 0);
-    data.writeBigUInt64LE(amount, 8);
+    writeU64LE(data, 8, amount);
 
     return new TransactionInstruction({
       programId: this.programId,
@@ -351,7 +352,7 @@ export class ThinkxxClient {
     const discriminator = this.getDiscriminator('set_emergency_bucket');
     const data = Buffer.alloc(8 + 8);
     discriminator.copy(data, 0);
-    data.writeBigUInt64LE(amount, 8);
+    writeU64LE(data, 8, amount);
 
     return new TransactionInstruction({
       programId: this.programId,
@@ -374,7 +375,7 @@ export class ThinkxxClient {
     const discriminator = this.getDiscriminator('emergency_withdraw');
     const data = Buffer.alloc(8 + 8);
     discriminator.copy(data, 0);
-    data.writeBigUInt64LE(amount, 8);
+    writeU64LE(data, 8, amount);
 
     return new TransactionInstruction({
       programId: this.programId,
@@ -437,7 +438,7 @@ export class ThinkxxClient {
     offset += 8;
 
     // plan_id (u64 LE)
-    buf.writeBigUInt64LE(params.planId, offset);
+    writeU64LE(buf, offset, params.planId);
     offset += 8;
 
     // mode (u8 enum)
@@ -460,11 +461,11 @@ export class ThinkxxClient {
     }
 
     // inactivity_duration (i64 LE)
-    buf.writeBigInt64LE(params.inactivityDuration, offset);
+    writeI64LE(buf, offset, params.inactivityDuration);
     offset += 8;
 
     // grace_period (i64 LE)
-    buf.writeBigInt64LE(params.gracePeriod, offset);
+    writeI64LE(buf, offset, params.gracePeriod);
     offset += 8;
 
     // guardian_quorum (u8)

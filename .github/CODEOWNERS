@@ -1,0 +1,18 @@
+# Default owner for everything
+* @sapirl7
+
+# On-chain program — requires explicit review
+/programs/        @sapirl7
+
+# SDK / CLI
+/packages/sdk/    @sapirl7
+/packages/cli/    @sapirl7
+
+# Mobile app
+/apps/mobile/     @sapirl7
+
+# Documentation / specs
+/docs/            @sapirl7
+
+# CI / automation
+/.github/         @sapirl7

@@ -1,6 +1,6 @@
-use anchor_lang::prelude::*;
-use crate::state::*;
 use crate::error::LifelineError;
+use crate::state::*;
+use anchor_lang::prelude::*;
 
 /// Minimum inactivity duration: 1 day in seconds
 const MIN_INACTIVITY: i64 = 86_400;

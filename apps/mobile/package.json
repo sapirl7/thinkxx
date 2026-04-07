@@ -1,6 +1,6 @@
 {
   "name": "@thinkxx/mobile",
-  "version": "0.1.0",
+  "version": "0.1.0-devnet",
   "main": "index.ts",
   "private": true,
   "scripts": {
@@ -15,6 +15,7 @@
     "build": "echo 'mobile build via expo'"
   },
   "dependencies": {
+    "@react-native-async-storage/async-storage": "^2.2.0",
     "@expo/metro-runtime": "~55.0.6",
     "@solana-mobile/mobile-wallet-adapter-protocol": "^2.2.5",
     "@solana-mobile/mobile-wallet-adapter-protocol-web3js": "^2.2.5",
@@ -25,6 +26,7 @@
     "@thinkxx/sdk": "workspace:*",
     "buffer": "^6.0.3",
     "expo": "~55.0.5",
+    "expo-secure-store": "~15.0.7",
     "expo-status-bar": "~55.0.4",
     "react": "19.2.0",
     "react-dom": "19.2.0",

@@ -1,116 +1,139 @@
 /**
- * HeartbeatScreen tests — render-based with mocked useWallet + Connection.
+ * HeartbeatScreen tests — plan-bound owner flow.
  *
- * Covers: plan address validation, account checks, success/error paths.
+ * Covers: missing plan selection, on-chain validation, and ready state rendering.
  */
 
 import React from 'react';
-import { render } from '@testing-library/react';
+import { render, waitFor } from '@testing-library/react';
 import { PublicKey } from '@solana/web3.js';
-import { Buffer } from 'buffer';
 
-import { resetMobileMocks, mockConnection, mockAlert } from '../../test/setup';
+import { resetMobileMocks } from '../../test/setup';
 
-const mockProgramId = new PublicKey('5FEoFcJ2QK7T8SFDX7jKtCfSKvfGhE8QDRLVH2xSWvaP');
-const mockPubkey = PublicKey.default;
+const mockPlanOwner = PublicKey.default;
+const mockFetchPlan = jest.fn();
 const mockSignAndSendTransaction = jest.fn().mockResolvedValue('heartbeat-sig-123');
+const mockConnection = {};
 
 jest.mock('../providers/WalletProvider', () => ({
   useWallet: () => ({
     connected: true,
-    publicKey: mockPubkey,
+    publicKey: mockPlanOwner,
     connection: mockConnection,
     signAndSendTransaction: mockSignAndSendTransaction,
   }),
 }));
 
-jest.mock('@thinkxx/sdk', () => ({
-  ThinkxxClient: jest.fn().mockImplementation(() => ({
-    buildHeartbeat: jest.fn().mockReturnValue({
-      programId: mockPubkey, keys: [], data: new Uint8Array(8),
-    }),
-  })),
-}));
+jest.mock('@thinkxx/sdk', () => {
+  const actual = jest.requireActual('@thinkxx/sdk');
+  const { PublicKey: PK } = jest.requireActual('@solana/web3.js');
+  return {
+    ...actual,
+    fetchPlan: (...args: unknown[]) => mockFetchPlan(...args),
+    ThinkxxClient: jest.fn().mockImplementation(() => ({
+      buildHeartbeat: jest.fn().mockReturnValue({
+        programId: PK.default,
+        keys: [],
+        data: new Uint8Array(8),
+      }),
+    })),
+    PlanState: {
+      Draft: 0,
+      Active: 1,
+      ClaimPending: 2,
+      ClaimApproved: 3,
+      Claimed: 4,
+      Cancelled: 5,
+      Paused: 6,
+    },
+  };
+});
 
 import HeartbeatScreen from './HeartbeatScreen';
 
 const mockOnBack = jest.fn();
+const planAddress = PublicKey.unique().toBase58();
 
 beforeEach(() => {
   resetMobileMocks();
   mockOnBack.mockReset();
+  mockFetchPlan.mockReset();
   mockSignAndSendTransaction.mockReset().mockResolvedValue('heartbeat-sig-123');
 });
 
 describe('HeartbeatScreen', () => {
   it('renders with Heartbeat title', () => {
-    const { container } = render(<HeartbeatScreen onBack={mockOnBack} />);
+    const { container } = render(<HeartbeatScreen onBack={mockOnBack} planAddress={null} />);
     expect(container.textContent).toContain('Heartbeat');
   });
 
-  it('renders with initialPlanAddress prop', () => {
-    const addr = 'AbCdEf123456789AbCdEf123456789AbCdEf12345678';
-    const { container } = render(<HeartbeatScreen onBack={mockOnBack} initialPlanAddress={addr} />);
-    expect(container).toBeTruthy();
+  it('shows no valid plan message when no selected plan exists', async () => {
+    const { container } = render(<HeartbeatScreen onBack={mockOnBack} planAddress={null} />);
+    await waitFor(() => {
+      expect(container.textContent).toContain('No valid plan connected');
+    });
   });
 
-  // ── Plan Address Validation Logic ──
-
-  it('rejects invalid base58', () => {
-    let isValid = true;
-    try { new PublicKey('0OlI'); } catch { isValid = false; }
-    expect(isValid).toBe(false);
+  it('shows on-chain missing plan state', async () => {
+    mockFetchPlan.mockResolvedValue(null);
+    const { container } = render(<HeartbeatScreen onBack={mockOnBack} planAddress={planAddress} />);
+    await waitFor(() => {
+      expect(container.textContent).toContain('Selected plan was not found on-chain yet');
+    });
   });
 
-  it('accepts valid base58 public key', () => {
-    let isValid = true;
-    try { new PublicKey(PublicKey.default.toBase58()); } catch { isValid = false; }
-    expect(isValid).toBe(true);
+  it('shows foreign owner state', async () => {
+    mockFetchPlan.mockResolvedValue({
+      owner: PublicKey.unique(),
+      planId: 1n,
+      mode: 0,
+      state: 1,
+      beneficiary: PublicKey.unique(),
+      backupBeneficiary: null,
+      inactivityDuration: 86400n,
+      gracePeriod: 3600n,
+      lastHeartbeat: 1710000000n,
+      guardianSet: PublicKey.unique(),
+      guardianQuorum: 0,
+      createdAt: 1710000000n,
+      updatedAt: 1710000000n,
+      vaultAuthorityBump: 1,
+      protectedLamports: 0n,
+      emergencyBucketLamports: 0n,
+      bump: 1,
+    });
+
+    const { container } = render(<HeartbeatScreen onBack={mockOnBack} planAddress={planAddress} />);
+    await waitFor(() => {
+      expect(container.textContent).toContain('belongs to another wallet');
+    });
   });
 
-  // ── Account Info Validation Logic ──
+  it('shows ready state for a valid plan', async () => {
+    mockFetchPlan.mockResolvedValue({
+      owner: mockPlanOwner,
+      planId: 1n,
+      mode: 0,
+      state: 1,
+      beneficiary: PublicKey.unique(),
+      backupBeneficiary: null,
+      inactivityDuration: 86400n,
+      gracePeriod: 3600n,
+      lastHeartbeat: BigInt(Math.floor(Date.now() / 1000) - 60),
+      guardianSet: PublicKey.unique(),
+      guardianQuorum: 0,
+      createdAt: 1710000000n,
+      updatedAt: 1710000000n,
+      vaultAuthorityBump: 1,
+      protectedLamports: 0n,
+      emergencyBucketLamports: 0n,
+      bump: 1,
+    });
 
-  it('null account info → Plan not found', () => {
-    const error = !null ? 'Plan account was not found on devnet.' : null;
-    expect(error).toBe('Plan account was not found on devnet.');
-  });
-
-  it('wrong owner → not a Thinkxx plan', () => {
-    const otherProgram = PublicKey.unique();
-    const error = !otherProgram.equals(mockProgramId) ? 'This address is not a Thinkxx plan.' : null;
-    expect(error).toBe('This address is not a Thinkxx plan.');
-  });
-
-  it('short data → data is invalid', () => {
-    const PLAN_OWNER_END = 40;
-    const error = Buffer.alloc(10).length < PLAN_OWNER_END ? 'Plan account data is invalid.' : null;
-    expect(error).toBe('Plan account data is invalid.');
-  });
-
-  it('sufficient data length accepted', () => {
-    const PLAN_OWNER_END = 40;
-    const error = Buffer.alloc(200).length < PLAN_OWNER_END ? 'Plan account data is invalid.' : null;
-    expect(error).toBeNull();
-  });
-
-  it('owner in data ≠ wallet → does not belong', () => {
-    const PLAN_OWNER_OFFSET = 8;
-    const PLAN_OWNER_END = PLAN_OWNER_OFFSET + 32;
-    const otherOwner = PublicKey.unique();
-    const data = Buffer.alloc(200);
-    data.set(otherOwner.toBuffer(), PLAN_OWNER_OFFSET);
-    const planOwner = new PublicKey(data.subarray(PLAN_OWNER_OFFSET, PLAN_OWNER_END));
-    const error = !planOwner.equals(mockPubkey) ? 'This plan does not belong to your wallet.' : null;
-    expect(error).toBe('This plan does not belong to your wallet.');
-  });
-
-  it('owner in data = wallet → passes validation', () => {
-    const PLAN_OWNER_OFFSET = 8;
-    const PLAN_OWNER_END = PLAN_OWNER_OFFSET + 32;
-    const data = Buffer.alloc(200);
-    data.set(mockPubkey.toBuffer(), PLAN_OWNER_OFFSET);
-    const planOwner = new PublicKey(data.subarray(PLAN_OWNER_OFFSET, PLAN_OWNER_END));
-    const error = !planOwner.equals(mockPubkey) ? 'This plan does not belong to your wallet.' : null;
-    expect(error).toBeNull();
+    const { container } = render(<HeartbeatScreen onBack={mockOnBack} planAddress={planAddress} />);
+    await waitFor(() => {
+      expect(container.textContent).toContain('Plan is ready for heartbeat');
+      expect(container.textContent).toContain('Last Recorded Heartbeat');
+    });
   });
 });

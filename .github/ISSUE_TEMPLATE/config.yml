@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security reports
+    url: https://github.com/sapirl7/thinkxx/security/policy
+    about: Please follow SECURITY.md for vulnerability reporting. Do not file public issues for security concerns.

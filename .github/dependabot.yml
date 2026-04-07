@@ -1,0 +1,71 @@
+version: 2
+updates:
+  # Rust / Anchor program
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "08:00"
+      timezone: "Europe/Warsaw"
+    open-pull-requests-limit: 5
+
+  # Root JS tooling (pnpm + turbo)
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "Europe/Warsaw"
+    open-pull-requests-limit: 5
+
+  # Mobile app
+  - package-ecosystem: "npm"
+    directory: "/apps/mobile"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:20"
+      timezone: "Europe/Warsaw"
+    open-pull-requests-limit: 5
+
+  # SDK
+  - package-ecosystem: "npm"
+    directory: "/packages/sdk"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:40"
+      timezone: "Europe/Warsaw"
+    open-pull-requests-limit: 5
+
+  # CLI
+  - package-ecosystem: "npm"
+    directory: "/packages/cli"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:50"
+      timezone: "Europe/Warsaw"
+    open-pull-requests-limit: 5
+
+  # Shared config
+  - package-ecosystem: "npm"
+    directory: "/packages/config"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "10:00"
+      timezone: "Europe/Warsaw"
+    open-pull-requests-limit: 5
+
+  # GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "10:10"
+      timezone: "Europe/Warsaw"
+    open-pull-requests-limit: 5

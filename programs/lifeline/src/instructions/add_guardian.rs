@@ -1,6 +1,6 @@
-use anchor_lang::prelude::*;
-use crate::state::*;
 use crate::error::LifelineError;
+use crate::state::*;
+use anchor_lang::prelude::*;
 
 #[derive(Accounts)]
 pub struct AddGuardian<'info> {
@@ -35,6 +35,10 @@ pub fn handler(ctx: Context<AddGuardian>, guardian: Pubkey) -> Result<()> {
     let plan = &mut ctx.accounts.plan;
     plan.updated_at = Clock::get()?.unix_timestamp;
 
-    msg!("Guardian {} added. Total: {}", guardian, guardian_set.guardians.len());
+    msg!(
+        "Guardian {} added. Total: {}",
+        guardian,
+        guardian_set.guardians.len()
+    );
     Ok(())
 }

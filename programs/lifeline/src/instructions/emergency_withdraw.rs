@@ -1,7 +1,7 @@
+use crate::error::LifelineError;
+use crate::state::*;
 use anchor_lang::prelude::*;
 use anchor_lang::system_program;
-use crate::state::*;
-use crate::error::LifelineError;
 
 #[derive(Accounts)]
 pub struct EmergencyWithdraw<'info> {
@@ -43,7 +43,10 @@ pub fn handler(ctx: Context<EmergencyWithdraw>, amount: u64) -> Result<()> {
 
     // Verify vault has enough lamports
     let vault_lamports = ctx.accounts.sol_vault.lamports();
-    require!(amount <= vault_lamports, LifelineError::EmergencyBucketExceeded);
+    require!(
+        amount <= vault_lamports,
+        LifelineError::EmergencyBucketExceeded
+    );
 
     // Transfer from vault to owner via CPI with PDA signing.
     // The sol_vault is system-owned (funded via system_program::transfer in deposit),

@@ -1,18 +1,25 @@
 import React, { useState, useCallback } from 'react';
-import { PublicKey, Transaction } from '@solana/web3.js';
-import { PlanMode, ThinkxxClient } from '@thinkxx/sdk';
+import { Connection, PublicKey, Transaction } from '@solana/web3.js';
+import { fetchPlan, PlanMode, ThinkxxClient } from '@thinkxx/sdk';
 import {
-  View,
-  Text,
-  TouchableOpacity,
-  StyleSheet,
-  SafeAreaView,
-  ScrollView,
-  TextInput,
   Alert,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
-import { StatusBar } from 'expo-status-bar';
 import { useWallet } from '../providers/WalletProvider';
+import ScreenShell from '../components/ScreenShell';
+import { isRpcRateLimitError, toRpcReadMessage } from '../lib/rpc';
+import {
+  AddressBlock,
+  KeyValueRow,
+  Panel,
+  PrimaryButton,
+  SectionHeading,
+  StatusPill,
+} from '../components/Primitives';
 import { theme } from '../theme';
 
 type PlanModeOption = 'medical' | 'legal_risk' | 'legacy';
@@ -20,7 +27,7 @@ type PlanModeOption = 'medical' | 'legal_risk' | 'legacy';
 interface PlanModeInfo {
   key: PlanModeOption;
   label: string;
-  icon: string;
+  code: string;
   description: string;
   defaultInactivity: string;
   defaultGrace: string;
@@ -30,24 +37,24 @@ const PLAN_MODES: PlanModeInfo[] = [
   {
     key: 'medical',
     label: 'Medical',
-    icon: '🏥',
-    description: 'Pre-surgery or high-risk medical procedure',
+    code: 'MED',
+    description: 'Emergency cover for surgery, treatment windows, or health-risk travel.',
     defaultInactivity: '30',
     defaultGrace: '7',
   },
   {
     key: 'legal_risk',
     label: 'Legal Risk',
-    icon: '⚖️',
-    description: 'Travel to high-risk jurisdiction',
+    code: 'RISK',
+    description: 'A longer inactivity window for detention, conflict, or border-risk scenarios.',
     defaultInactivity: '90',
     defaultGrace: '14',
   },
   {
     key: 'legacy',
     label: 'Legacy',
-    icon: '🏛',
-    description: 'Long-term inheritance planning',
+    code: 'EST',
+    description: 'Long-horizon inheritance planning with calmer defaults and wider review time.',
     defaultInactivity: '365',
     defaultGrace: '30',
   },
@@ -57,6 +64,8 @@ interface CreatePlanScreenProps {
   onBack: () => void;
   onCreated: (planAddress: string) => void;
 }
+
+type CreationStage = 'editing' | 'awaiting_wallet' | 'confirming_chain';
 
 const MODE_TO_PLAN_MODE: Record<PlanModeOption, PlanMode> = {
   medical: PlanMode.Medical,
@@ -70,10 +79,92 @@ const MAX_INACTIVITY_DAYS = 1_825;
 const MIN_GRACE_HOURS = 1;
 const MIN_GRACE_DAYS = MIN_GRACE_HOURS / 24;
 const MAX_GRACE_DAYS = 90;
+const PLAN_FETCH_RETRIES = 3;
+const PLAN_FETCH_DELAY_MS = 800;
+
+async function waitForPlanConfirmation(
+  connection: Connection,
+  planAddress: PublicKey,
+): Promise<'confirmed' | 'pending_sync'> {
+  for (let attempt = 0; attempt < PLAN_FETCH_RETRIES; attempt += 1) {
+    try {
+      const plan = await fetchPlan(connection, planAddress);
+      if (plan) {
+        return 'confirmed';
+      }
+    } catch (error) {
+      if (!isRpcRateLimitError(error)) {
+        throw error;
+      }
+    }
+
+    await new Promise(resolve => {
+      setTimeout(resolve, PLAN_FETCH_DELAY_MS * (attempt + 1));
+    });
+  }
+
+  return 'pending_sync';
+}
+
+function ModeCard({
+  mode,
+  selected,
+  onSelect,
+}: {
+  mode: PlanModeInfo;
+  selected: boolean;
+  onSelect: () => void;
+}): React.JSX.Element {
+  return (
+    <TouchableOpacity
+      style={[styles.modeCard, selected && styles.modeCardSelected]}
+      onPress={onSelect}
+      activeOpacity={0.85}
+    >
+      <View style={styles.modeHeader}>
+        <View style={[styles.modeCode, selected && styles.modeCodeSelected]}>
+          <Text style={[styles.modeCodeText, selected && styles.modeCodeTextSelected]}>{mode.code}</Text>
+        </View>
+        {selected ? <StatusPill label="Selected" tone="primary" /> : null}
+      </View>
+      <Text style={styles.modeLabel}>{mode.label}</Text>
+      <Text style={styles.modeDescription}>{mode.description}</Text>
+      <View style={styles.modeDefaults}>
+        <Text style={styles.modeDefaultText}>Inactive: {mode.defaultInactivity}d</Text>
+        <Text style={styles.modeDefaultText}>Grace: {mode.defaultGrace}d</Text>
+      </View>
+    </TouchableOpacity>
+  );
+}
+
+function StageRail({ stage }: { stage: CreationStage }): React.JSX.Element {
+  const configureActive = stage === 'editing';
+  const approveActive = stage === 'awaiting_wallet';
+  const confirmActive = stage === 'confirming_chain';
+
+  return (
+    <View style={styles.stageRail}>
+      <View style={styles.stageNode}>
+        <View style={[styles.stageDot, configureActive && styles.stageDotActive]} />
+        <Text style={styles.stageNodeText}>Configure</Text>
+      </View>
+      <View style={styles.stageLine} />
+      <View style={styles.stageNode}>
+        <View style={[styles.stageDot, approveActive && styles.stageDotActive]} />
+        <Text style={styles.stageNodeText}>Approve</Text>
+      </View>
+      <View style={styles.stageLine} />
+      <View style={styles.stageNode}>
+        <View style={[styles.stageDot, confirmActive && styles.stageDotActive]} />
+        <Text style={styles.stageNodeText}>Confirm</Text>
+      </View>
+    </View>
+  );
+}
 
 /**
- * CreatePlanScreen — wizard for creating a new emergency access plan.
- * Collects mode, beneficiary, and timing parameters.
+ * CreatePlanScreen — owner-side plan creation.
+ * The redesign makes the flow feel like an on-chain provisioning sequence.
  */
 export default function CreatePlanScreen({ onBack, onCreated }: CreatePlanScreenProps): React.JSX.Element {
   const { connection, publicKey, signAndSendTransaction } = useWallet();
@@ -81,13 +172,20 @@ export default function CreatePlanScreen({ onBack, onCreated }: CreatePlanScreen
   const [beneficiary, setBeneficiary] = useState('');
   const [inactivityDays, setInactivityDays] = useState('');
   const [graceDays, setGraceDays] = useState('');
-  const [creating, setCreating] = useState(false);
+  const [creationStage, setCreationStage] = useState<CreationStage>('editing');
 
-  const selectedModeInfo = PLAN_MODES.find(m => m.key === selectedMode);
+  const selectedModeInfo = PLAN_MODES.find(mode => mode.key === selectedMode);
+  const creating = creationStage !== 'editing';
+  const stageLabel =
+    creationStage === 'awaiting_wallet'
+      ? 'Approve this plan request in your wallet.'
+      : creationStage === 'confirming_chain'
+        ? 'Wallet approved. Waiting for the new plan account to appear on-chain.'
+        : 'Review configuration before opening the wallet approval step.';
 
   const handleModeSelect = useCallback((mode: PlanModeOption) => {
     setSelectedMode(mode);
-    const info = PLAN_MODES.find(m => m.key === mode);
+    const info = PLAN_MODES.find(option => option.key === mode);
     if (info) {
       setInactivityDays(info.defaultInactivity);
       setGraceDays(info.defaultGrace);
@@ -115,16 +213,28 @@ export default function CreatePlanScreen({ onBack, onCreated }: CreatePlanScreen
     const inactivityValue = Number.parseFloat(inactivityDays);
     const graceValue = Number.parseFloat(graceDays);
 
-    if (!Number.isFinite(inactivityValue) || inactivityValue < MIN_INACTIVITY_DAYS || inactivityValue > MAX_INACTIVITY_DAYS) {
-      Alert.alert('Invalid Timing', `Inactivity period must be between ${MIN_INACTIVITY_DAYS} and ${MAX_INACTIVITY_DAYS} days`);
+    if (
+      !Number.isFinite(inactivityValue) ||
+      inactivityValue < MIN_INACTIVITY_DAYS ||
+      inactivityValue > MAX_INACTIVITY_DAYS
+    ) {
+      Alert.alert(
+        'Invalid Timing',
+        `Inactivity period must be between ${MIN_INACTIVITY_DAYS} and ${MAX_INACTIVITY_DAYS} days`,
+      );
       return;
     }
     if (!Number.isFinite(graceValue) || graceValue < MIN_GRACE_DAYS || graceValue > MAX_GRACE_DAYS) {
-      Alert.alert('Invalid Timing', `Grace period must be between ${MIN_GRACE_HOURS} hour and ${MAX_GRACE_DAYS} days`);
+      Alert.alert(
+        'Invalid Timing',
+        `Grace period must be between ${MIN_GRACE_HOURS} hour and ${MAX_GRACE_DAYS} days`,
+      );
       return;
     }
 
-    setCreating(true);
+    setCreationStage('awaiting_wallet');
+    let signature: string | null = null;
+    let planAddressBase58: string | null = null;
 
     try {
       const client = new ThinkxxClient(connection);
@@ -138,62 +248,115 @@ export default function CreatePlanScreen({ onBack, onCreated }: CreatePlanScreen
         guardianQuorum: 0,
       });
 
-      const signature = await signAndSendTransaction(new Transaction().add(instruction));
+      planAddressBase58 = planPda.toBase58();
+      signature = await signAndSendTransaction(new Transaction().add(instruction));
+      setCreationStage('confirming_chain');
+      const syncState = await waitForPlanConfirmation(connection, planPda);
 
-      Alert.alert(
-        'Plan Created',
-        `Plan address:\n${planPda.toBase58()}\n\nSignature:\n${signature}`,
-        [{ text: 'Continue', onPress: () => onCreated(planPda.toBase58()) }],
-        { cancelable: false }
-      );
+      if (syncState === 'confirmed') {
+        Alert.alert(
+          'Plan Created',
+          `Plan address:\n${planPda.toBase58()}\n\nSignature:\n${signature}`,
+          [{ text: 'Continue', onPress: () => onCreated(planAddressBase58!) }],
+          { cancelable: false },
+        );
+      } else {
+        Alert.alert(
+          'Plan Submitted',
+          `Transaction signature:\n${signature}\n\nThe plan request reached devnet, but RPC sync is delayed. Open Dashboard and pull to refresh in a few seconds.`,
+          [{ text: 'Continue', onPress: () => onCreated(planAddressBase58!) }],
+          { cancelable: false },
+        );
+      }
     } catch (err) {
-      Alert.alert('Create Plan Failed', err instanceof Error ? err.message : 'Failed to create plan');
+      if (signature && planAddressBase58) {
+        Alert.alert(
+          'Plan Submitted',
+          `Plan address:\n${planAddressBase58}\n\nTransaction signature:\n${signature}\n\nThe transaction was submitted, but devnet state sync is delayed. Open Dashboard and pull to refresh in a few seconds.`,
+          [{ text: 'Continue', onPress: () => onCreated(planAddressBase58!) }],
+          { cancelable: false },
+        );
+        return;
+      }
+
+      const errorMessage = toRpcReadMessage(err, 'Failed to create plan.');
+      const errorName = err instanceof Error ? err.constructor.name : typeof err;
+      console.error('[CreatePlan] Failed:', errorName, errorMessage, err);
+      Alert.alert(
+        'Create Plan Failed',
+        `${errorMessage}`,
+      );
     } finally {
-      setCreating(false);
+      setCreationStage('editing');
     }
-  }, [beneficiary, connection, graceDays, inactivityDays, onCreated, publicKey, selectedMode, signAndSendTransaction]);
+  }, [
+    beneficiary,
+    connection,
+    graceDays,
+    inactivityDays,
+    onCreated,
+    publicKey,
+    selectedMode,
+    signAndSendTransaction,
+  ]);
 
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar style="light" />
+    <ScreenShell
+      title="Create Plan"
+      subtitle="Provision a new on-chain emergency-access plan for the connected owner wallet."
+      eyebrow="Owner flow / provisioning"
+      onBack={onBack}
+      scroll
+      contentContainerStyle={styles.content}
+      footer={
+        <View style={styles.footerDock}>
+          <PrimaryButton
+            label={
+              creationStage === 'awaiting_wallet'
+                ? 'Approve in Wallet...'
+                : creationStage === 'confirming_chain'
+                  ? 'Confirming On-Chain...'
+                  : 'Create Plan'
+            }
+            onPress={handleCreate}
+            disabled={!selectedMode || creating}
+            loading={creating}
+          />
+          <Text style={styles.disclaimer}>
+            This provisions a new on-chain account. Devnet rent and network fees will appear in the wallet approval step.
+          </Text>
+        </View>
+      }
+    >
+      <Panel tone="primary">
+        <SectionHeading label="Flow preview" />
+        <StatusPill
+          label={stageLabel}
+          tone={creationStage === 'editing' ? 'primary' : 'warning'}
+        />
+        <StageRail stage={creationStage} />
+        <Text style={styles.stageText}>
+          This flow creates a dedicated plan account on devnet. After chain confirmation, the app switches to the live plan view instead of pretending the plan already exists.
+        </Text>
+      </Panel>
 
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={onBack} style={styles.backButton}>
-          <Text style={styles.backText}>← Back</Text>
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Create Plan</Text>
-        <View style={{ width: 60 }} />
+      <View style={styles.modeStack}>
+        <SectionHeading label="Choose mission profile" />
+        {PLAN_MODES.map(mode => (
+          <ModeCard
+            key={mode.key}
+            mode={mode}
+            selected={selectedMode === mode.key}
+            onSelect={() => handleModeSelect(mode.key)}
+          />
+        ))}
       </View>
 
-      <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
-        {/* Mode Selection */}
-        <Text style={styles.sectionLabel}>Plan Mode</Text>
-        <View style={styles.modeGrid}>
-          {PLAN_MODES.map(mode => (
-            <TouchableOpacity
-              key={mode.key}
-              style={[
-                styles.modeCard,
-                selectedMode === mode.key && styles.modeCardSelected,
-              ]}
-              onPress={() => handleModeSelect(mode.key)}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.modeIcon}>{mode.icon}</Text>
-              <Text style={[
-                styles.modeLabel,
-                selectedMode === mode.key && styles.modeLabelSelected,
-              ]}>
-                {mode.label}
-              </Text>
-              <Text style={styles.modeDescription}>{mode.description}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        {/* Beneficiary */}
-        <Text style={styles.sectionLabel}>Beneficiary Address</Text>
+      <Panel>
+        <SectionHeading label="Beneficiary identity" />
+        <Text style={styles.formHelp}>
+          Enter the beneficiary wallet address. This is not your owner wallet and not the future plan account.
+        </Text>
         <TextInput
           style={styles.input}
           placeholder="Solana public key (base58)"
@@ -203,221 +366,219 @@ export default function CreatePlanScreen({ onBack, onCreated }: CreatePlanScreen
           autoCapitalize="none"
           autoCorrect={false}
         />
+        {beneficiary.trim() ? (
+          <AddressBlock
+            label="Beneficiary preview"
+            address={beneficiary.trim()}
+            helper="Confirm this carefully. A wrong beneficiary address changes who can later claim."
+          />
+        ) : null}
+      </Panel>
 
-        {/* Timing */}
-        <Text style={styles.sectionLabel}>Timing Parameters</Text>
-        <View style={styles.timingRow}>
+      <Panel tone="secondary">
+        <SectionHeading label="Timing controls" />
+        <View style={styles.timingGrid}>
           <View style={styles.timingField}>
-            <Text style={styles.timingLabel}>Inactivity (days)</Text>
+            <Text style={styles.timingLabel}>Inactivity window (days)</Text>
             <TextInput
               style={styles.timingInput}
               value={inactivityDays}
               onChangeText={setInactivityDays}
               keyboardType="number-pad"
+              placeholder="30"
               placeholderTextColor={theme.colors.textMuted}
             />
           </View>
           <View style={styles.timingField}>
-            <Text style={styles.timingLabel}>Grace (days)</Text>
+            <Text style={styles.timingLabel}>Grace period (days)</Text>
             <TextInput
               style={styles.timingInput}
               value={graceDays}
               onChangeText={setGraceDays}
               keyboardType="decimal-pad"
+              placeholder="7"
               placeholderTextColor={theme.colors.textMuted}
             />
           </View>
         </View>
-
-        {/* Summary */}
-        {selectedMode && (
-          <View style={styles.summaryCard}>
-            <Text style={styles.summaryTitle}>Plan Summary</Text>
-            <SummaryRow label="Mode" value={selectedModeInfo?.label ?? ''} />
-            <SummaryRow label="Inactivity" value={`${inactivityDays} days`} />
-            <SummaryRow label="Grace Period" value={`${graceDays} days`} />
-            <SummaryRow label="Guardians" value="0 (add later)" />
-          </View>
-        )}
-
-        {/* Create Button */}
-        <TouchableOpacity
-          style={[styles.createButton, (!selectedMode || creating) && styles.createButtonDisabled]}
-          onPress={handleCreate}
-          disabled={!selectedMode || creating}
-          activeOpacity={0.8}
-        >
-          <Text style={styles.createButtonText}>{creating ? 'Awaiting Wallet...' : 'Create Plan'}</Text>
-        </TouchableOpacity>
-
-        <Text style={styles.disclaimer}>
-          ⚠️ This creates an on-chain account. A small rent deposit is required.
+        <Text style={styles.timingHint}>
+          On-chain bounds: inactivity {MIN_INACTIVITY_DAYS}–{MAX_INACTIVITY_DAYS} days, grace {MIN_GRACE_HOURS}
+          h–{MAX_GRACE_DAYS} days.
         </Text>
-      </ScrollView>
-    </SafeAreaView>
-  );
-}
+      </Panel>
 
-function SummaryRow({ label, value }: { label: string; value: string }): React.JSX.Element {
-  return (
-    <View style={styles.summaryRow}>
-      <Text style={styles.summaryLabel}>{label}</Text>
-      <Text style={styles.summaryValue}>{value}</Text>
-    </View>
+      {selectedMode ? (
+        <Panel>
+          <SectionHeading label="Provision summary" />
+          <KeyValueRow label="Mode" value={selectedModeInfo?.label ?? ''} />
+          <KeyValueRow label="Inactivity" value={`${inactivityDays} days`} />
+          <KeyValueRow label="Grace period" value={`${graceDays} days`} />
+          <KeyValueRow label="Guardians" value="0 (add later)" muted />
+        </Panel>
+      ) : null}
+    </ScreenShell>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: theme.colors.background,
-  },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: theme.spacing.lg,
-    paddingVertical: theme.spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: theme.colors.border,
-  },
-  backButton: {
-    width: 60,
-  },
-  backText: {
-    fontSize: theme.fontSize.md,
-    color: theme.colors.primary,
-  },
-  headerTitle: {
-    fontSize: theme.fontSize.lg,
-    fontWeight: theme.fontWeight.bold,
-    color: theme.colors.text,
-  },
-  scrollView: {
-    flex: 1,
-  },
-  scrollContent: {
-    padding: theme.spacing.lg,
+  content: {
     gap: theme.spacing.lg,
-    paddingBottom: theme.spacing.xxl,
   },
-  sectionLabel: {
-    fontSize: theme.fontSize.md,
+  stageText: {
+    color: theme.colors.textSecondary,
+    fontSize: theme.fontSize.sm,
+    lineHeight: 20,
+  },
+  stageRail: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.sm,
+  },
+  stageNode: {
+    alignItems: 'center',
+    gap: theme.spacing.xs,
+  },
+  stageDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: theme.colors.borderStrong,
+    borderWidth: 1,
+    borderColor: theme.colors.textMuted,
+  },
+  stageDotActive: {
+    backgroundColor: theme.colors.primary,
+    borderColor: theme.colors.focusRing,
+  },
+  stageLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: theme.colors.borderStrong,
+  },
+  stageNodeText: {
+    color: theme.colors.textMuted,
+    fontSize: 10,
     fontWeight: theme.fontWeight.semibold,
-    color: theme.colors.text,
-    marginBottom: -theme.spacing.sm,
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
   },
-  modeGrid: {
+  modeStack: {
     gap: theme.spacing.md,
   },
   modeCard: {
     backgroundColor: theme.colors.surface,
-    borderRadius: theme.borderRadius.md,
-    padding: theme.spacing.md,
-    borderWidth: 1.5,
-    borderColor: theme.colors.border,
+    borderRadius: theme.borderRadius.xl,
+    borderWidth: 1,
+    borderColor: theme.colors.borderStrong,
+    padding: theme.spacing.lg,
+    gap: theme.spacing.md,
   },
   modeCardSelected: {
     borderColor: theme.colors.primary,
-    backgroundColor: `${theme.colors.primary}10`,
+    backgroundColor: theme.colors.surfaceMuted,
   },
-  modeIcon: {
-    fontSize: 28,
-    marginBottom: theme.spacing.xs,
+  modeHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: theme.spacing.md,
+  },
+  modeCode: {
+    minWidth: 56,
+    paddingHorizontal: theme.spacing.sm,
+    paddingVertical: theme.spacing.xs,
+    borderRadius: theme.borderRadius.full,
+    backgroundColor: theme.colors.surfaceElevated,
+    borderWidth: 1,
+    borderColor: theme.colors.borderStrong,
+    alignItems: 'center',
+  },
+  modeCodeSelected: {
+    backgroundColor: theme.colors.primarySoft,
+    borderColor: theme.colors.primary,
+  },
+  modeCodeText: {
+    color: theme.colors.textSoft,
+    fontSize: theme.fontSize.xs,
+    fontWeight: theme.fontWeight.bold,
+    letterSpacing: 1.1,
+  },
+  modeCodeTextSelected: {
+    color: theme.colors.text,
   },
   modeLabel: {
-    fontSize: theme.fontSize.md,
-    fontWeight: theme.fontWeight.semibold,
     color: theme.colors.text,
-    marginBottom: 2,
-  },
-  modeLabelSelected: {
-    color: theme.colors.primaryLight,
+    fontSize: theme.fontSize.lg,
+    fontWeight: theme.fontWeight.bold,
   },
   modeDescription: {
-    fontSize: theme.fontSize.sm,
     color: theme.colors.textSecondary,
+    fontSize: theme.fontSize.sm,
+    lineHeight: 20,
+  },
+  modeDefaults: {
+    flexDirection: 'row',
+    gap: theme.spacing.sm,
+    flexWrap: 'wrap',
+  },
+  modeDefaultText: {
+    color: theme.colors.textMuted,
+    fontSize: theme.fontSize.xs,
+    fontWeight: theme.fontWeight.semibold,
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+  },
+  formHelp: {
+    color: theme.colors.textSecondary,
+    fontSize: theme.fontSize.sm,
+    lineHeight: 20,
   },
   input: {
-    backgroundColor: theme.colors.surface,
-    borderRadius: theme.borderRadius.md,
+    minHeight: 56,
+    borderRadius: theme.borderRadius.lg,
     borderWidth: 1,
-    borderColor: theme.colors.border,
+    borderColor: theme.colors.borderStrong,
+    backgroundColor: theme.colors.surfaceElevated,
     paddingHorizontal: theme.spacing.md,
-    paddingVertical: theme.spacing.md,
     color: theme.colors.text,
     fontSize: theme.fontSize.md,
     fontFamily: 'monospace',
   },
-  timingRow: {
+  timingGrid: {
     flexDirection: 'row',
     gap: theme.spacing.md,
   },
   timingField: {
     flex: 1,
-  },
-  timingLabel: {
-    fontSize: theme.fontSize.sm,
-    color: theme.colors.textSecondary,
-    marginBottom: theme.spacing.xs,
-  },
-  timingInput: {
-    backgroundColor: theme.colors.surface,
-    borderRadius: theme.borderRadius.md,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    paddingHorizontal: theme.spacing.md,
-    paddingVertical: theme.spacing.md,
-    color: theme.colors.text,
-    fontSize: theme.fontSize.lg,
-    fontWeight: theme.fontWeight.bold,
-    textAlign: 'center',
-  },
-  summaryCard: {
-    backgroundColor: theme.colors.surfaceElevated,
-    borderRadius: theme.borderRadius.md,
-    padding: theme.spacing.md,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
     gap: theme.spacing.sm,
   },
-  summaryTitle: {
-    fontSize: theme.fontSize.md,
-    fontWeight: theme.fontWeight.semibold,
-    color: theme.colors.text,
-    marginBottom: theme.spacing.xs,
-  },
-  summaryRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  summaryLabel: {
-    fontSize: theme.fontSize.sm,
+  timingLabel: {
     color: theme.colors.textSecondary,
-  },
-  summaryValue: {
     fontSize: theme.fontSize.sm,
-    fontWeight: theme.fontWeight.medium,
-    color: theme.colors.text,
   },
-  createButton: {
-    backgroundColor: theme.colors.primary,
+  timingInput: {
+    minHeight: 56,
     borderRadius: theme.borderRadius.lg,
-    paddingVertical: theme.spacing.md,
-    alignItems: 'center',
-  },
-  createButtonDisabled: {
-    opacity: 0.4,
-  },
-  createButtonText: {
-    fontSize: theme.fontSize.lg,
-    fontWeight: theme.fontWeight.bold,
+    borderWidth: 1,
+    borderColor: theme.colors.borderStrong,
+    backgroundColor: theme.colors.surfaceElevated,
+    paddingHorizontal: theme.spacing.md,
     color: theme.colors.text,
+    fontSize: 26,
+    fontWeight: theme.fontWeight.bold,
+  },
+  timingHint: {
+    color: theme.colors.textMuted,
+    fontSize: theme.fontSize.xs,
+    lineHeight: 18,
+  },
+  footerDock: {
+    gap: theme.spacing.md,
   },
   disclaimer: {
-    fontSize: theme.fontSize.xs,
     color: theme.colors.textMuted,
+    fontSize: theme.fontSize.sm,
+    lineHeight: 18,
     textAlign: 'center',
   },
 });

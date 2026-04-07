@@ -94,4 +94,26 @@ describe('PDA derivation', () => {
       expect(unique.size).toBe(5);
     });
   });
+
+  describe('RN compatibility', () => {
+    it('does not rely on Buffer.writeBigUInt64LE for plan PDA derivation', () => {
+      const original = Buffer.prototype.writeBigUInt64LE;
+
+      Object.defineProperty(Buffer.prototype, 'writeBigUInt64LE', {
+        value: undefined,
+        configurable: true,
+        writable: true,
+      });
+
+      try {
+        expect(() => derivePlanPda(TEST_OWNER, TEST_PLAN_ID)).not.toThrow();
+      } finally {
+        Object.defineProperty(Buffer.prototype, 'writeBigUInt64LE', {
+          value: original,
+          configurable: true,
+          writable: true,
+        });
+      }
+    });
+  });
 });
