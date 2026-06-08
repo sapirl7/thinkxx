@@ -33,7 +33,7 @@
     "prettier": "^3.2.0",
     "solana-bankrun": "^0.4.0",
     "ts-mocha": "^11.1.0",
-    "turbo": "^2.3.0",
+    "turbo": "^2.9.14",
     "typescript": "^5.9.3"
   },
   "packageManager": "pnpm@9.15.0",
