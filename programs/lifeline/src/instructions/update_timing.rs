@@ -15,20 +15,24 @@ pub struct UpdateTiming<'info> {
 }
 
 /// Update timing parameters (inactivity duration and grace period).
-/// Must respect minimum bounds: inactivity >= 1 day, grace >= 1 day.
+/// Bounds must match `initialize_plan` so timing can't be relaxed after creation:
+/// inactivity in [1 day, ~5 years], grace in [1 hour, 90 days].
 pub fn handler(
     ctx: Context<UpdateTiming>,
     new_inactivity_duration: i64,
     new_grace_period: i64,
 ) -> Result<()> {
-    const MIN_DURATION: i64 = 86_400; // 1 day in seconds
+    const MIN_INACTIVITY: i64 = 86_400; // 1 day
+    const MAX_INACTIVITY: i64 = 157_680_000; // ~5 years
+    const MIN_GRACE: i64 = 3_600; // 1 hour
+    const MAX_GRACE: i64 = 7_776_000; // 90 days
 
     require!(
-        new_inactivity_duration >= MIN_DURATION,
+        new_inactivity_duration >= MIN_INACTIVITY && new_inactivity_duration <= MAX_INACTIVITY,
         LifelineError::InvalidTimingParameter
     );
     require!(
-        new_grace_period >= MIN_DURATION,
+        new_grace_period >= MIN_GRACE && new_grace_period <= MAX_GRACE,
         LifelineError::InvalidTimingParameter
     );
 

@@ -7,7 +7,7 @@
  */
 
 export { derivePlanPda, deriveGuardianSetPda, deriveClaimPda, deriveVaultAuthorityPda, deriveSolVaultPda } from './pda';
-export { ThinkxxClient, PlanMode, PlanState } from './client';
-export type { PlanAccountData, CreatePlanParams } from './client';
+export { ThinkxxClient, PlanMode, PlanState, ClaimState } from './client';
+export type { PlanAccountData, CreatePlanParams, GuardianSetData, ClaimData, PlanSummary } from './client';
 export { SponsoredTransactionBuilder } from './sponsored';
 export type { SponsoredTxConfig } from './sponsored';

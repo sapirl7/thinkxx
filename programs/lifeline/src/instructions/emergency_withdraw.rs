@@ -66,8 +66,14 @@ pub fn handler(ctx: Context<EmergencyWithdraw>, amount: u64) -> Result<()> {
 
     // Update accounting (mutable borrow after CPI)
     let plan = &mut ctx.accounts.plan;
-    plan.emergency_bucket_lamports -= amount;
-    plan.protected_lamports -= amount;
+    plan.emergency_bucket_lamports = plan
+        .emergency_bucket_lamports
+        .checked_sub(amount)
+        .ok_or(LifelineError::EmergencyBucketExceeded)?;
+    plan.protected_lamports = plan
+        .protected_lamports
+        .checked_sub(amount)
+        .ok_or(LifelineError::EmergencyBucketExceeded)?;
     plan.updated_at = Clock::get()?.unix_timestamp;
 
     msg!("Emergency withdrawal: {} lamports to owner", amount);

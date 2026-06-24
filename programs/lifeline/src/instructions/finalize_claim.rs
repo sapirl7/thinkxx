@@ -24,6 +24,7 @@ pub struct FinalizeClaim<'info> {
         has_one = plan,
         constraint = claim.state == ClaimState::Approved || claim.state == ClaimState::Pending @ LifelineError::InvalidPlanState,
         constraint = claim.claimant == claimant.key() @ LifelineError::NotBeneficiary,
+        close = claimant,
     )]
     pub claim: Account<'info, ClaimAccount>,
 
@@ -50,20 +51,28 @@ pub fn handler(ctx: Context<FinalizeClaim>) -> Result<()> {
     let claim = &ctx.accounts.claim;
     let plan = &ctx.accounts.plan;
 
-    // Two paths to finalization:
-    // 1. Claim is Approved (guardian quorum met)
-    // 2. Grace period expired AND no guardians (or quorum is 0)
-    let can_finalize = match claim.state {
-        ClaimState::Approved => true,
-        ClaimState::Pending => {
-            // Grace period must have elapsed
-            clock.unix_timestamp > claim.grace_deadline
-            && (ctx.accounts.guardian_set.guardians.is_empty() || plan.guardian_quorum == 0)
+    // Two paths to finalization, both of which require the owner's grace
+    // window to have elapsed so the owner always has the full grace period
+    // to cancel a wrongful claim:
+    // 1. Claim is Approved (guardian quorum met) AND grace elapsed
+    // 2. No active guardian oversight AND grace elapsed
+    match claim.state {
+        ClaimState::Approved => {
+            require!(
+                clock.unix_timestamp >= claim.grace_deadline,
+                LifelineError::GracePeriodNotElapsed
+            );
         }
-        _ => false,
-    };
-
-    require!(can_finalize, LifelineError::QuorumNotMet);
+        ClaimState::Pending => {
+            require!(
+                clock.unix_timestamp > claim.grace_deadline
+                    && (ctx.accounts.guardian_set.guardians.is_empty()
+                        || plan.guardian_quorum == 0),
+                LifelineError::QuorumNotMet
+            );
+        }
+        _ => return err!(LifelineError::InvalidPlanState),
+    }
 
     // Transfer all vault lamports to claimant via CPI with PDA signing.
     // The sol_vault is system-owned (funded via system_program::transfer in deposit),

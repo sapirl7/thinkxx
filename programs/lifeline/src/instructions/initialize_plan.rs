@@ -65,6 +65,14 @@ pub fn handler(
         LifelineError::InvalidTimingParameter
     );
 
+    // The owner must never be their own beneficiary or backup, otherwise they
+    // could masquerade as the claimant via start_claim.
+    let owner_key = ctx.accounts.owner.key();
+    require!(beneficiary != owner_key, LifelineError::InvalidBeneficiary);
+    if let Some(backup) = backup_beneficiary {
+        require!(backup != owner_key, LifelineError::InvalidBeneficiary);
+    }
+
     let clock = Clock::get()?;
     let plan = &mut ctx.accounts.plan;
 

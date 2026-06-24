@@ -76,6 +76,90 @@ export interface CreatePlanParams {
   guardianQuorum: number;
 }
 
+/** Claim lifecycle state — mirrors ClaimState on-chain. */
+export enum ClaimState {
+  Pending = 0,
+  Approved = 1,
+  Vetoed = 2,
+  Finalized = 3,
+  Cancelled = 4,
+}
+
+/** On-chain guardian set account (deserialized). */
+export interface GuardianSetData {
+  plan: PublicKey;
+  guardians: PublicKey[];
+  quorum: number;
+  updateDelay: bigint;
+  bump: number;
+}
+
+/** On-chain claim account (deserialized). */
+export interface ClaimData {
+  plan: PublicKey;
+  claimant: PublicKey;
+  state: ClaimState;
+  startedAt: bigint;
+  graceDeadline: bigint;
+  approvals: PublicKey[];
+  vetoes: PublicKey[];
+  bump: number;
+}
+
+/** A plan account paired with its address and live vault balance. */
+export interface PlanSummary {
+  address: PublicKey;
+  account: PlanAccountData;
+  vaultLamports: number;
+}
+
+/** Total on-chain size of a PlanAccount (8 discriminator + fields + padding). */
+const PLAN_ACCOUNT_SIZE = 270;
+
+/**
+ * Minimal sequential reader for Borsh-encoded Anchor account data.
+ * Avoids pulling a Borsh dependency to stay React Native friendly.
+ */
+class BufferReader {
+  offset = 0;
+  constructor(private readonly buf: Buffer) {}
+
+  pubkey(): PublicKey {
+    const key = new PublicKey(this.buf.subarray(this.offset, this.offset + 32));
+    this.offset += 32;
+    return key;
+  }
+  u8(): number {
+    const v = this.buf.readUInt8(this.offset);
+    this.offset += 1;
+    return v;
+  }
+  u32(): number {
+    const v = this.buf.readUInt32LE(this.offset);
+    this.offset += 4;
+    return v;
+  }
+  u64(): bigint {
+    const v = this.buf.readBigUInt64LE(this.offset);
+    this.offset += 8;
+    return v;
+  }
+  i64(): bigint {
+    const v = this.buf.readBigInt64LE(this.offset);
+    this.offset += 8;
+    return v;
+  }
+  optionPubkey(): PublicKey | null {
+    return this.u8() === 0 ? null : this.pubkey();
+  }
+  vecPubkey(): PublicKey[] {
+    const n = this.u32();
+    const out: PublicKey[] = [];
+    for (let i = 0; i < n; i += 1) out.push(this.pubkey());
+    return out;
+  }
+}
+
 /**
  * ThinkxxClient — SDK for interacting with the Lifeline protocol.
  *
@@ -393,7 +477,7 @@ export class ThinkxxClient {
 
   /** Build a simple instruction with no args (discriminator only). */
   private simpleInstruction(
-    name: string,
+    name: keyof typeof INSTRUCTION_DISCRIMINATORS,
     keys: Array<{ pubkey: PublicKey; isSigner: boolean; isWritable: boolean }>,
   ): TransactionInstruction {
     return new TransactionInstruction({
@@ -407,14 +491,8 @@ export class ThinkxxClient {
    * Compute Anchor instruction discriminator.
    * Stored as constants to keep the SDK React Native compatible.
    */
-  private getDiscriminator(name: string): Buffer {
-    const discriminator = INSTRUCTION_DISCRIMINATORS[name as keyof typeof INSTRUCTION_DISCRIMINATORS];
-
-    if (!discriminator) {
-      throw new Error(`Unsupported instruction discriminator: ${name}`);
-    }
-
-    return discriminator;
+  private getDiscriminator(name: keyof typeof INSTRUCTION_DISCRIMINATORS): Buffer {
+    return INSTRUCTION_DISCRIMINATORS[name];
   }
 
   /**
@@ -471,5 +549,112 @@ export class ThinkxxClient {
     buf.writeUInt8(params.guardianQuorum, offset);
 
     return buf;
+  }
+
+  // --- Account decoding (read path) ---
+
+  /** Decode raw PlanAccount data (skips the 8-byte Anchor discriminator). */
+  static decodePlanAccount(data: Buffer): PlanAccountData {
+    const r = new BufferReader(data);
+    r.offset = 8;
+    return {
+      owner: r.pubkey(),
+      planId: r.u64(),
+      mode: r.u8() as PlanMode,
+      state: r.u8() as PlanState,
+      beneficiary: r.pubkey(),
+      backupBeneficiary: r.optionPubkey(),
+      inactivityDuration: r.i64(),
+      gracePeriod: r.i64(),
+      lastHeartbeat: r.i64(),
+      guardianSet: r.pubkey(),
+      guardianQuorum: r.u8(),
+      createdAt: r.i64(),
+      updatedAt: r.i64(),
+      vaultAuthorityBump: r.u8(),
+      protectedLamports: r.u64(),
+      emergencyBucketLamports: r.u64(),
+      bump: r.u8(),
+    };
+  }
+
+  /** Decode raw GuardianSetAccount data. */
+  static decodeGuardianSet(data: Buffer): GuardianSetData {
+    const r = new BufferReader(data);
+    r.offset = 8;
+    return {
+      plan: r.pubkey(),
+      guardians: r.vecPubkey(),
+      quorum: r.u8(),
+      updateDelay: r.i64(),
+      bump: r.u8(),
+    };
+  }
+
+  /** Decode raw ClaimAccount data. */
+  static decodeClaim(data: Buffer): ClaimData {
+    const r = new BufferReader(data);
+    r.offset = 8;
+    return {
+      plan: r.pubkey(),
+      claimant: r.pubkey(),
+      state: r.u8() as ClaimState,
+      startedAt: r.i64(),
+      graceDeadline: r.i64(),
+      approvals: r.vecPubkey(),
+      vetoes: r.vecPubkey(),
+      bump: r.u8(),
+    };
+  }
+
+  // --- Account fetching (read path) ---
+
+  /** Fetch and decode a plan account; null if it does not exist. */
+  async fetchPlan(planPda: PublicKey): Promise<PlanAccountData | null> {
+    const info = await this.connection.getAccountInfo(planPda);
+    if (!info) return null;
+    return ThinkxxClient.decodePlanAccount(info.data as Buffer);
+  }
+
+  /** Fetch and decode a guardian set account; null if it does not exist. */
+  async fetchGuardianSet(guardianSetPda: PublicKey): Promise<GuardianSetData | null> {
+    const info = await this.connection.getAccountInfo(guardianSetPda);
+    if (!info) return null;
+    return ThinkxxClient.decodeGuardianSet(info.data as Buffer);
+  }
+
+  /** Fetch and decode the active claim for a plan; null if none exists. */
+  async fetchClaim(claimPda: PublicKey): Promise<ClaimData | null> {
+    const info = await this.connection.getAccountInfo(claimPda);
+    if (!info) return null;
+    return ThinkxxClient.decodeClaim(info.data as Buffer);
+  }
+
+  /** Lamports currently held in a plan's SOL vault. */
+  async fetchVaultLamports(planPda: PublicKey): Promise<number> {
+    const [solVault] = deriveSolVaultPda(planPda);
+    return this.connection.getBalance(solVault);
+  }
+
+  /** Fetch all plans owned by `owner`, each with its live vault balance. */
+  async fetchPlansByOwner(owner: PublicKey): Promise<PlanSummary[]> {
+    const accounts = await this.connection.getProgramAccounts(this.programId, {
+      filters: [
+        { dataSize: PLAN_ACCOUNT_SIZE },
+        { memcmp: { offset: 8, bytes: owner.toBase58() } },
+      ],
+    });
+
+    const summaries: PlanSummary[] = [];
+    for (const { pubkey, account } of accounts) {
+      try {
+        const decoded = ThinkxxClient.decodePlanAccount(account.data as Buffer);
+        const vaultLamports = await this.fetchVaultLamports(pubkey);
+        summaries.push({ address: pubkey, account: decoded, vaultLamports });
+      } catch {
+        // Skip accounts that fail to decode (forward-compat / corrupt data).
+      }
+    }
+    return summaries;
   }
 }

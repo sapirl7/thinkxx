@@ -75,4 +75,7 @@ pub enum LifelineError {
 
     #[msg("Duplicate guardian in set")]
     DuplicateGuardian,
+
+    #[msg("Beneficiary cannot be the plan owner")]
+    InvalidBeneficiary,
 }

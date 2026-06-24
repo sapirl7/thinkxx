@@ -28,11 +28,15 @@ pub fn handler(
 ) -> Result<()> {
     let plan = &mut ctx.accounts.plan;
 
-    // Prevent setting beneficiary to owner (anti-pattern)
+    // Prevent setting beneficiary or backup to owner — the owner must never be
+    // able to masquerade as the claimant via start_claim.
     require!(
         new_beneficiary != plan.owner,
-        LifelineError::InvalidPlanState
+        LifelineError::InvalidBeneficiary
     );
+    if let Some(backup) = new_backup_beneficiary {
+        require!(backup != plan.owner, LifelineError::InvalidBeneficiary);
+    }
 
     plan.beneficiary = new_beneficiary;
     plan.backup_beneficiary = new_backup_beneficiary;
