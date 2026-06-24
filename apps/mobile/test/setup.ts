@@ -84,7 +84,7 @@ export function resetMobileMocks(): void {
 // These must be at module scope for jest hoisting.
 
 jest.mock('@solana-mobile/mobile-wallet-adapter-protocol-web3js', () => ({
-  transact: (...args: any[]) => mockTransact(...args),
+  transact: (...args: any[]) => mockTransact(...(args as Parameters<typeof mockTransact>)),
 }));
 
 jest.mock('@solana-mobile/mobile-wallet-adapter-protocol', () => {

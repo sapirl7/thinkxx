@@ -27,7 +27,7 @@ jest.mock('../providers/WalletProvider', () => ({
 jest.mock('@thinkxx/sdk', () => ({
   ThinkxxClient: jest.fn().mockImplementation(() => ({
     buildInitializePlan: jest.fn().mockReturnValue({
-      instruction: { programId: mockPublicKey, keys: [], data: Buffer.alloc(8) },
+      instruction: { programId: mockPublicKey, keys: [], data: new Uint8Array(8) },
       planPda: mockPublicKey,
     }),
   })),

@@ -71,7 +71,8 @@ describe('HeartbeatScreen', () => {
   // ── Account Info Validation Logic ──
 
   it('null account info → Plan not found', () => {
-    const error = !null ? 'Plan account was not found on devnet.' : null;
+    const accountInfo: unknown = null;
+    const error = !accountInfo ? 'Plan account was not found on devnet.' : null;
     expect(error).toBe('Plan account was not found on devnet.');
   });
 
