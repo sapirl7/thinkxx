@@ -50,7 +50,7 @@ function AppNavigator(): React.JSX.Element {
         />
       );
     case 'guardians':
-      return <GuardiansScreen onBack={() => setScreen('plan_detail')} />;
+      return <GuardiansScreen planAddress={selectedPlan} onBack={() => setScreen('plan_detail')} />;
     case 'settings':
       return (
         <SettingsScreen

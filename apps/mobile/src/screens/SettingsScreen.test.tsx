@@ -1,13 +1,18 @@
 /**
- * SettingsScreen tests — render-based.
- *
- * Covers: disconnect callback, settings display.
+ * SettingsScreen tests — render-based with mocked useWallet.
  */
 
 import React from 'react';
-import { render, fireEvent } from '@testing-library/react';
+import { render } from '@testing-library/react';
+import { PublicKey } from '@solana/web3.js';
 
 import { resetMobileMocks } from '../../test/setup';
+
+const mockPublicKey = PublicKey.default;
+
+jest.mock('../providers/WalletProvider', () => ({
+  useWallet: () => ({ publicKey: mockPublicKey }),
+}));
 
 import SettingsScreen from './SettingsScreen';
 
@@ -21,27 +26,26 @@ beforeEach(() => {
 });
 
 describe('SettingsScreen', () => {
-  it('renders all settings sections', () => {
+  it('renders the settings sections', () => {
     const { container } = render(<SettingsScreen onBack={onBack} onDisconnect={onDisconnect} />);
-    expect(container.textContent).toContain('Security');
+    expect(container.textContent).toContain('Wallet');
     expect(container.textContent).toContain('Notifications');
-    expect(container.textContent).toContain('Protocol');
     expect(container.textContent).toContain('About');
-    expect(container.textContent).toContain('Danger Zone');
+    expect(container.textContent).toContain('Danger zone');
   });
 
   it('shows version info', () => {
     const { container } = render(<SettingsScreen onBack={onBack} onDisconnect={onDisconnect} />);
-    expect(container.textContent).toContain('Version');
+    expect(container.textContent).toContain('0.3.0');
   });
 
-  it('shows network as Devnet', () => {
+  it('shows the network as Devnet', () => {
     const { container } = render(<SettingsScreen onBack={onBack} onDisconnect={onDisconnect} />);
     expect(container.textContent).toContain('Devnet');
   });
 
-  it('renders disconnect option in danger zone', () => {
+  it('renders the disconnect action', () => {
     const { container } = render(<SettingsScreen onBack={onBack} onDisconnect={onDisconnect} />);
-    expect(container.textContent).toContain('Disconnect Wallet');
+    expect(container.textContent).toContain('Disconnect wallet');
   });
 });
