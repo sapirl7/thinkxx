@@ -4,31 +4,23 @@ import { WalletProvider, useWallet } from './src/providers/WalletProvider';
 import ConnectScreen from './src/screens/ConnectScreen';
 import DashboardScreen from './src/screens/DashboardScreen';
 import CreatePlanScreen from './src/screens/CreatePlanScreen';
-import HeartbeatScreen from './src/screens/HeartbeatScreen';
 import PlanDetailScreen from './src/screens/PlanDetailScreen';
 import GuardiansScreen from './src/screens/GuardiansScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
 
 /**
  * Screen-based navigation for the Thinkxx mobile app.
- * 7 screens covering the full protocol UX.
  */
-type Screen =
-  | 'dashboard'
-  | 'create_plan'
-  | 'heartbeat'
-  | 'plan_detail'
-  | 'guardians'
-  | 'settings';
+type Screen = 'dashboard' | 'create_plan' | 'plan_detail' | 'guardians' | 'settings';
 
 function AppNavigator(): React.JSX.Element {
   const { connected, disconnect, publicKey } = useWallet();
   const [screen, setScreen] = useState<Screen>('dashboard');
-  const [lastPlanAddress, setLastPlanAddress] = useState<string | null>(null);
+  const [selectedPlan, setSelectedPlan] = useState<string | null>(null);
   const walletAddress = publicKey?.toBase58() ?? null;
 
   useEffect(() => {
-    setLastPlanAddress(null);
+    setSelectedPlan(null);
     setScreen('dashboard');
   }, [walletAddress]);
 
@@ -36,37 +28,29 @@ function AppNavigator(): React.JSX.Element {
     return <ConnectScreen />;
   }
 
+  const openPlan = (address: string) => {
+    setSelectedPlan(address);
+    setScreen('plan_detail');
+  };
+
   switch (screen) {
     case 'create_plan':
       return (
         <CreatePlanScreen
           onBack={() => setScreen('dashboard')}
-          onCreated={(planAddress: string) => {
-            setLastPlanAddress(planAddress);
-            setScreen('dashboard');
-          }}
-        />
-      );
-    case 'heartbeat':
-      return (
-        <HeartbeatScreen
-          onBack={() => setScreen('dashboard')}
-          initialPlanAddress={lastPlanAddress}
+          onCreated={openPlan}
         />
       );
     case 'plan_detail':
       return (
         <PlanDetailScreen
+          planAddress={selectedPlan}
           onBack={() => setScreen('dashboard')}
           onGuardians={() => setScreen('guardians')}
         />
       );
     case 'guardians':
-      return (
-        <GuardiansScreen
-          onBack={() => setScreen('plan_detail')}
-        />
-      );
+      return <GuardiansScreen onBack={() => setScreen('plan_detail')} />;
     case 'settings':
       return (
         <SettingsScreen
@@ -78,9 +62,8 @@ function AppNavigator(): React.JSX.Element {
       return (
         <DashboardScreen
           onCreatePlan={() => setScreen('create_plan')}
-          onHeartbeat={() => setScreen('heartbeat')}
+          onOpenPlan={openPlan}
           onSettings={() => setScreen('settings')}
-          lastPlanAddress={lastPlanAddress}
         />
       );
   }

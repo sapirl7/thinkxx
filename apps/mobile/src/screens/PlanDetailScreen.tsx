@@ -1,248 +1,297 @@
-import React, { useState } from 'react';
+import React, { useCallback, useState } from 'react';
+import { View, Text, TextInput, StyleSheet, Alert, Linking, TouchableOpacity } from 'react-native';
+import { Transaction, type TransactionInstruction } from '@solana/web3.js';
+import { deriveClaimPda, PlanState, ClaimState } from '@thinkxx/sdk';
+import { useWallet } from '../providers/WalletProvider';
+import { useThinkxxClient, usePlanDetail } from '../hooks/useThinkxx';
+import { theme } from '../theme';
 import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  ScrollView,
-} from 'react-native';
-import { COLORS, SPACING, FONT_SIZES, BORDER_RADIUS } from '../theme';
+  Screen,
+  ScreenHeader,
+  Card,
+  Badge,
+  Button,
+  SectionTitle,
+  InfoRow,
+  Loading,
+  ErrorView,
+  planModeLabel,
+  planStateLabel,
+  planStateTone,
+  claimStateLabel,
+} from '../components';
+import { formatSol, formatDuration, formatDate, shortenAddress, solToLamports } from '../lib/format';
+import { explorerTxUrl } from '../lib/solana';
 
 interface PlanDetailScreenProps {
+  planAddress: string | null;
   onBack: () => void;
   onGuardians: () => void;
 }
 
-type PlanState = 'Draft' | 'Active' | 'Paused' | 'ClaimPending' | 'Claimed' | 'Cancelled';
+type AmountAction = 'deposit' | 'emergency' | null;
 
-const STATE_COLORS: Record<PlanState, string> = {
-  Draft: '#6E7681',
-  Active: COLORS.success,
-  Paused: '#D29922',
-  ClaimPending: COLORS.danger,
-  Claimed: '#00BFA6',
-  Cancelled: '#6E7681',
-};
+export default function PlanDetailScreen({
+  planAddress,
+  onBack,
+  onGuardians,
+}: PlanDetailScreenProps): React.JSX.Element {
+  const { publicKey, signAndSendTransaction } = useWallet();
+  const client = useThinkxxClient();
+  const { data, loading, error, refetch } = usePlanDetail(planAddress);
 
-export default function PlanDetailScreen({ onBack, onGuardians }: PlanDetailScreenProps): React.JSX.Element {
-  const [planState] = useState<PlanState>('Active');
+  const [busy, setBusy] = useState<string | null>(null);
+  const [amountAction, setAmountAction] = useState<AmountAction>(null);
+  const [amount, setAmount] = useState('');
 
-  const planData = {
-    mode: 'Medical',
-    beneficiary: 'B7n4...xK9r',
-    backupBeneficiary: 'None',
-    inactivity: '2 days',
-    grace: '1 day',
-    lastHeartbeat: '2 min ago',
-    vaultBalance: '5.250 SOL',
-    emergencyBucket: '0.500 SOL',
-    guardians: 3,
-    quorum: 2,
-    createdAt: 'Mar 8, 2026',
+  const send = useCallback(
+    async (instruction: TransactionInstruction, label: string) => {
+      try {
+        setBusy(label);
+        const signature = await signAndSendTransaction(new Transaction().add(instruction));
+        setAmountAction(null);
+        setAmount('');
+        Alert.alert('Success', `${label} confirmed.`, [
+          { text: 'View on Explorer', onPress: () => void Linking.openURL(explorerTxUrl(signature)) },
+          { text: 'Done', style: 'cancel' },
+        ]);
+        await refetch();
+      } catch (e) {
+        Alert.alert('Transaction failed', e instanceof Error ? e.message : 'Please try again.');
+      } finally {
+        setBusy(null);
+      }
+    },
+    [signAndSendTransaction, refetch],
+  );
+
+  if (loading) {
+    return (
+      <Screen padded={false}>
+        <ScreenHeader title="Plan details" onBack={onBack} />
+        <Loading label="Loading plan…" />
+      </Screen>
+    );
+  }
+
+  if (error || !data) {
+    return (
+      <Screen padded={false}>
+        <ScreenHeader title="Plan details" onBack={onBack} />
+        <ErrorView message={error ?? 'Plan not found.'} onRetry={refetch} />
+      </Screen>
+    );
+  }
+
+  const { account, guardianSet, claim, vaultLamports, address } = data;
+  const planPda = address;
+  const isOwner = !!publicKey && account.owner.equals(publicKey);
+  const guardianCount = guardianSet?.guardians.length ?? 0;
+  const quorum = guardianSet?.quorum ?? account.guardianQuorum;
+  const protectedSol = formatSol(account.protectedLamports);
+  const emergencySol = formatSol(account.emergencyBucketLamports);
+
+  const confirmAndSend = (title: string, message: string, ix: TransactionInstruction, label: string, destructive = false) => {
+    Alert.alert(title, message, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Confirm', style: destructive ? 'destructive' : 'default', onPress: () => void send(ix, label) },
+    ]);
   };
 
-  return (
-    <View style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={onBack} style={styles.backBtn}>
-          <Text style={styles.backText}>← Back</Text>
-        </TouchableOpacity>
-        <Text style={styles.title}>Plan Details</Text>
-        <View style={styles.backBtn} />
-      </View>
+  const submitAmount = () => {
+    const value = Number(amount);
+    if (!Number.isFinite(value) || value <= 0) {
+      Alert.alert('Invalid amount', 'Enter an amount greater than 0.');
+      return;
+    }
+    const lamports = solToLamports(value);
+    if (amountAction === 'deposit') {
+      void send(client.buildDepositSol(account.owner, planPda, lamports), `Deposit ${value} SOL`);
+    } else if (amountAction === 'emergency') {
+      Alert.alert(
+        'Emergency withdrawal',
+        `Withdraw ${value} SOL from the emergency bucket to your wallet? This bypasses guardians.`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Withdraw',
+            style: 'destructive',
+            onPress: () => void send(client.buildEmergencyWithdraw(account.owner, planPda, lamports), `Emergency withdraw ${value} SOL`),
+          },
+        ],
+      );
+    }
+  };
 
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        {/* Status Badge */}
-        <View style={styles.statusCard}>
-          <View style={[styles.statusBadge, { backgroundColor: STATE_COLORS[planState] + '20' }]}>
-            <View style={[styles.statusDot, { backgroundColor: STATE_COLORS[planState] }]} />
-            <Text style={[styles.statusText, { color: STATE_COLORS[planState] }]}>{planState}</Text>
-          </View>
-          <Text style={styles.modeLabel}>{planData.mode} Mode</Text>
-        </View>
+  const claimActive = account.state === PlanState.ClaimPending || account.state === PlanState.ClaimApproved;
+
+  return (
+    <Screen padded={false} keyboardAvoiding>
+      <ScreenHeader title="Plan details" onBack={onBack} />
+      <Screen scroll padded>
+        {/* Status */}
+        <Card style={styles.center}>
+          <Badge label={planStateLabel(account.state)} tone={planStateTone(account.state)} />
+          <Text style={styles.mode}>{planModeLabel(account.mode)} mode</Text>
+        </Card>
+
+        {/* Claim banner */}
+        {claimActive && claim ? (
+          <Card style={styles.claimCard}>
+            <Text style={styles.claimTitle}>⚠️ Claim in progress</Text>
+            <InfoRow label="Status" value={claimStateLabel(claim.state)} />
+            <InfoRow label="Claimant" value={shortenAddress(claim.claimant.toBase58())} mono />
+            <InfoRow label="Approvals" value={`${claim.approvals.length} / ${quorum}`} />
+            <InfoRow label="Grace ends" value={formatDate(claim.graceDeadline)} />
+            {isOwner && claim.state === ClaimState.Pending ? (
+              <Button
+                label="Cancel claim (I'm still here)"
+                variant="danger"
+                loading={busy?.startsWith('Cancel')}
+                onPress={() =>
+                  confirmAndSend(
+                    'Cancel claim',
+                    'This cancels the active claim and resets your heartbeat. Only works during the grace window.',
+                    client.buildCancelClaim(account.owner, planPda, deriveClaimPda(planPda)[0]),
+                    'Cancel claim',
+                  )
+                }
+              />
+            ) : null}
+          </Card>
+        ) : null}
 
         {/* Vault */}
-        <View style={styles.vaultCard}>
-          <Text style={styles.vaultLabel}>Vault Balance</Text>
-          <Text style={styles.vaultAmount}>{planData.vaultBalance}</Text>
-          <View style={styles.vaultRow}>
-            <Text style={styles.vaultSubtext}>Emergency: {planData.emergencyBucket}</Text>
-          </View>
-          <View style={styles.vaultActions}>
-            <TouchableOpacity style={styles.vaultBtn}>
-              <Text style={styles.vaultBtnText}>📥 Deposit</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[styles.vaultBtn, styles.vaultBtnSecondary]}>
-              <Text style={styles.vaultBtnSecondaryText}>🆘 Emergency</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
+        <Card style={styles.center}>
+          <Text style={styles.vaultLabel}>Vault balance</Text>
+          <Text style={styles.vaultValue}>{formatSol(vaultLamports)}</Text>
+          <Text style={styles.vaultSub}>Protected: {protectedSol} · Emergency: {emergencySol}</Text>
+        </Card>
 
-        {/* Heartbeat */}
-        <View style={styles.heartbeatCard}>
-          <View style={styles.heartbeatHeader}>
-            <Text style={styles.heartbeatIcon}>💓</Text>
-            <View>
-              <Text style={styles.heartbeatLabel}>Last Heartbeat</Text>
-              <Text style={styles.heartbeatValue}>{planData.lastHeartbeat}</Text>
+        {/* Owner amount actions */}
+        {isOwner && amountAction ? (
+          <Card>
+            <SectionTitle>{amountAction === 'deposit' ? 'Deposit SOL' : 'Emergency withdraw'}</SectionTitle>
+            <TextInput
+              style={styles.input}
+              value={amount}
+              onChangeText={setAmount}
+              placeholder="Amount in SOL"
+              placeholderTextColor={theme.colors.textMuted}
+              keyboardType="decimal-pad"
+              accessibilityLabel="Amount in SOL"
+              autoFocus
+            />
+            <View style={styles.row}>
+              <View style={styles.rowItem}>
+                <Button label="Cancel" variant="secondary" onPress={() => { setAmountAction(null); setAmount(''); }} />
+              </View>
+              <View style={styles.rowItem}>
+                <Button label="Confirm" loading={!!busy} onPress={submitAmount} />
+              </View>
             </View>
-          </View>
-          <TouchableOpacity style={styles.heartbeatBtn}>
-            <Text style={styles.heartbeatBtnText}>Send Heartbeat</Text>
-          </TouchableOpacity>
-        </View>
+          </Card>
+        ) : null}
 
-        {/* Details Grid */}
-        <Text style={styles.sectionTitle}>Configuration</Text>
-        <View style={styles.detailsGrid}>
-          <DetailRow label="Beneficiary" value={planData.beneficiary} mono />
-          <DetailRow label="Backup" value={planData.backupBeneficiary} />
-          <DetailRow label="Inactivity Window" value={planData.inactivity} />
-          <DetailRow label="Grace Period" value={planData.grace} />
-          <DetailRow label="Created" value={planData.createdAt} />
-        </View>
+        {/* Owner actions */}
+        {isOwner && !amountAction ? (
+          <View style={styles.actions}>
+            {account.state === PlanState.Draft ? (
+              <Button
+                label="Activate plan"
+                loading={busy === 'Activate plan'}
+                onPress={() => confirmAndSend('Activate plan', 'Activate this plan so the inactivity timer starts.', client.buildActivatePlan(account.owner, planPda), 'Activate plan')}
+              />
+            ) : null}
+
+            {account.state === PlanState.Active ? (
+              <>
+                <Button
+                  label="💓 Send heartbeat"
+                  loading={busy === 'Heartbeat'}
+                  onPress={() => void send(client.buildHeartbeat(account.owner, planPda), 'Heartbeat')}
+                  accessibilityHint="Prove you are active and reset the inactivity timer"
+                />
+                <Button label="Deposit SOL" variant="secondary" onPress={() => setAmountAction('deposit')} />
+                <Button label="Emergency withdraw" variant="secondary" onPress={() => setAmountAction('emergency')} />
+                <Button
+                  label="Pause plan"
+                  variant="secondary"
+                  loading={busy === 'Pause plan'}
+                  onPress={() => confirmAndSend('Pause plan', 'Pausing stops the inactivity timer until you resume.', client.buildPausePlan(account.owner, planPda), 'Pause plan')}
+                />
+              </>
+            ) : null}
+
+            {account.state === PlanState.Paused ? (
+              <>
+                <Button
+                  label="Resume plan"
+                  loading={busy === 'Resume plan'}
+                  onPress={() => confirmAndSend('Resume plan', 'Resume the plan and restart the inactivity timer.', client.buildResumePlan(account.owner, planPda), 'Resume plan')}
+                />
+                <Button label="Deposit SOL" variant="secondary" onPress={() => setAmountAction('deposit')} />
+              </>
+            ) : null}
+          </View>
+        ) : null}
+
+        {/* Configuration */}
+        <SectionTitle>Configuration</SectionTitle>
+        <Card>
+          <InfoRow label="Beneficiary" value={shortenAddress(account.beneficiary.toBase58())} mono />
+          <InfoRow
+            label="Backup"
+            value={account.backupBeneficiary ? shortenAddress(account.backupBeneficiary.toBase58()) : 'None'}
+            mono
+          />
+          <InfoRow label="Inactivity window" value={formatDuration(account.inactivityDuration)} />
+          <InfoRow label="Grace period" value={formatDuration(account.gracePeriod)} />
+          <InfoRow label="Last heartbeat" value={formatDate(account.lastHeartbeat)} />
+          <InfoRow label="Created" value={formatDate(account.createdAt)} />
+          <InfoRow label="Plan address" value={shortenAddress(planPda.toBase58())} mono />
+        </Card>
 
         {/* Guardians */}
-        <TouchableOpacity style={styles.guardiansCard} onPress={onGuardians}>
-          <View style={styles.guardiansLeft}>
-            <Text style={styles.guardiansIcon}>🛡️</Text>
-            <View>
-              <Text style={styles.guardiansLabel}>Guardians</Text>
-              <Text style={styles.guardiansValue}>
-                {planData.guardians} guardians • Quorum: {planData.quorum}
-              </Text>
+        <TouchableOpacity onPress={onGuardians} activeOpacity={0.8} accessibilityRole="button" accessibilityLabel="Manage guardians">
+          <Card>
+            <View style={styles.guardianRow}>
+              <View>
+                <Text style={styles.guardianTitle}>🛡 Guardians</Text>
+                <Text style={styles.guardianSub}>{guardianCount} guardians · quorum {quorum}</Text>
+              </View>
+              <Text style={styles.chevron} importantForAccessibility="no">›</Text>
             </View>
-          </View>
-          <Text style={styles.chevron}>›</Text>
+          </Card>
         </TouchableOpacity>
-
-        {/* Actions */}
-        <Text style={styles.sectionTitle}>Actions</Text>
-        <View style={styles.actionsGrid}>
-          <TouchableOpacity style={styles.actionBtn}>
-            <Text style={styles.actionIcon}>⏸</Text>
-            <Text style={styles.actionText}>Pause Plan</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.actionBtn}>
-            <Text style={styles.actionIcon}>✏️</Text>
-            <Text style={styles.actionText}>Edit Timing</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.actionBtn}>
-            <Text style={styles.actionIcon}>👤</Text>
-            <Text style={styles.actionText}>Update Beneficiary</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.actionBtn, styles.dangerAction]}>
-            <Text style={styles.actionIcon}>🗑</Text>
-            <Text style={[styles.actionText, styles.dangerText]}>Close Plan</Text>
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.bottomSpacer} />
-      </ScrollView>
-    </View>
-  );
-}
-
-function DetailRow({ label, value, mono }: { label: string; value: string; mono?: boolean }): React.JSX.Element {
-  return (
-    <View style={styles.detailRow}>
-      <Text style={styles.detailLabel}>{label}</Text>
-      <Text style={[styles.detailValue, mono && styles.monoText]}>{value}</Text>
-    </View>
+      </Screen>
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: COLORS.background },
-  header: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: SPACING.lg, paddingTop: SPACING.xl + 20, paddingBottom: SPACING.md,
+  center: { alignItems: 'center' },
+  mode: { color: theme.colors.textSecondary, fontSize: theme.fontSize.sm },
+  vaultLabel: { color: theme.colors.textSecondary, fontSize: theme.fontSize.sm },
+  vaultValue: { color: theme.colors.text, fontSize: theme.fontSize.hero, fontWeight: theme.fontWeight.bold },
+  vaultSub: { color: theme.colors.textMuted, fontSize: theme.fontSize.xs },
+  claimCard: { borderColor: `${theme.colors.danger}55` },
+  claimTitle: { color: theme.colors.dangerLight, fontSize: theme.fontSize.md, fontWeight: theme.fontWeight.bold },
+  actions: { gap: theme.spacing.md },
+  input: {
+    backgroundColor: theme.colors.background,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    borderRadius: theme.borderRadius.md,
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: theme.spacing.md,
+    color: theme.colors.text,
+    fontSize: theme.fontSize.lg,
   },
-  backBtn: { width: 60 },
-  backText: { color: COLORS.accent, fontSize: FONT_SIZES.md },
-  title: { color: COLORS.textPrimary, fontSize: FONT_SIZES.xl, fontWeight: '700' },
-  content: { flex: 1 },
-  statusCard: {
-    alignItems: 'center', marginHorizontal: SPACING.lg, marginTop: SPACING.sm,
-    backgroundColor: COLORS.surface, borderRadius: BORDER_RADIUS.lg, padding: SPACING.lg,
-  },
-  statusBadge: {
-    flexDirection: 'row', alignItems: 'center',
-    paddingHorizontal: SPACING.md, paddingVertical: SPACING.xs, borderRadius: 20,
-  },
-  statusDot: { width: 8, height: 8, borderRadius: 4, marginRight: SPACING.xs },
-  statusText: { fontSize: FONT_SIZES.md, fontWeight: '700' },
-  modeLabel: { color: COLORS.textMuted, fontSize: FONT_SIZES.sm, marginTop: SPACING.xs },
-  vaultCard: {
-    marginHorizontal: SPACING.lg, marginTop: SPACING.md,
-    backgroundColor: COLORS.surface, borderRadius: BORDER_RADIUS.lg, padding: SPACING.lg,
-    alignItems: 'center',
-  },
-  vaultLabel: { color: COLORS.textMuted, fontSize: FONT_SIZES.sm },
-  vaultAmount: { color: COLORS.textPrimary, fontSize: 36, fontWeight: '700', marginTop: SPACING.xs },
-  vaultRow: { marginTop: SPACING.xs },
-  vaultSubtext: { color: COLORS.textMuted, fontSize: FONT_SIZES.xs },
-  vaultActions: { flexDirection: 'row', gap: SPACING.sm, marginTop: SPACING.md, width: '100%' },
-  vaultBtn: {
-    flex: 1, backgroundColor: COLORS.accent, borderRadius: BORDER_RADIUS.md,
-    paddingVertical: SPACING.sm, alignItems: 'center',
-  },
-  vaultBtnText: { color: '#000', fontWeight: '700' },
-  vaultBtnSecondary: { backgroundColor: COLORS.danger + '20' },
-  vaultBtnSecondaryText: { color: COLORS.danger, fontWeight: '700' },
-  heartbeatCard: {
-    marginHorizontal: SPACING.lg, marginTop: SPACING.md,
-    backgroundColor: COLORS.surface, borderRadius: BORDER_RADIUS.lg, padding: SPACING.md,
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-  },
-  heartbeatHeader: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm },
-  heartbeatIcon: { fontSize: 28 },
-  heartbeatLabel: { color: COLORS.textMuted, fontSize: FONT_SIZES.xs },
-  heartbeatValue: { color: COLORS.success, fontSize: FONT_SIZES.md, fontWeight: '600' },
-  heartbeatBtn: {
-    backgroundColor: COLORS.success + '20', borderRadius: BORDER_RADIUS.md,
-    paddingHorizontal: SPACING.md, paddingVertical: SPACING.sm,
-  },
-  heartbeatBtnText: { color: COLORS.success, fontWeight: '700', fontSize: FONT_SIZES.sm },
-  sectionTitle: {
-    color: COLORS.textMuted, fontSize: FONT_SIZES.xs, fontWeight: '600',
-    textTransform: 'uppercase', letterSpacing: 1,
-    marginHorizontal: SPACING.lg, marginTop: SPACING.lg, marginBottom: SPACING.xs,
-  },
-  detailsGrid: {
-    backgroundColor: COLORS.surface, borderRadius: BORDER_RADIUS.lg,
-    marginHorizontal: SPACING.lg, overflow: 'hidden',
-  },
-  detailRow: {
-    flexDirection: 'row', justifyContent: 'space-between',
-    paddingHorizontal: SPACING.md, paddingVertical: SPACING.sm + 2,
-    borderBottomWidth: 0.5, borderBottomColor: COLORS.background,
-  },
-  detailLabel: { color: COLORS.textMuted, fontSize: FONT_SIZES.sm },
-  detailValue: { color: COLORS.textPrimary, fontSize: FONT_SIZES.sm, fontWeight: '500' },
-  monoText: { fontFamily: 'monospace' },
-  guardiansCard: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    marginHorizontal: SPACING.lg, marginTop: SPACING.md,
-    backgroundColor: COLORS.surface, borderRadius: BORDER_RADIUS.lg, padding: SPACING.md,
-  },
-  guardiansLeft: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm },
-  guardiansIcon: { fontSize: 24 },
-  guardiansLabel: { color: COLORS.textPrimary, fontSize: FONT_SIZES.md, fontWeight: '600' },
-  guardiansValue: { color: COLORS.textMuted, fontSize: FONT_SIZES.xs },
-  chevron: { color: COLORS.textMuted, fontSize: 24 },
-  actionsGrid: {
-    flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.sm,
-    marginHorizontal: SPACING.lg,
-  },
-  actionBtn: {
-    width: '48%', backgroundColor: COLORS.surface, borderRadius: BORDER_RADIUS.md,
-    padding: SPACING.md, alignItems: 'center',
-  },
-  actionIcon: { fontSize: 24, marginBottom: SPACING.xs },
-  actionText: { color: COLORS.textPrimary, fontSize: FONT_SIZES.sm, fontWeight: '500' },
-  dangerAction: { borderWidth: 1, borderColor: COLORS.danger + '30' },
-  dangerText: { color: COLORS.danger },
-  bottomSpacer: { height: 40 },
+  row: { flexDirection: 'row', gap: theme.spacing.md },
+  rowItem: { flex: 1 },
+  guardianRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  guardianTitle: { color: theme.colors.text, fontSize: theme.fontSize.md, fontWeight: theme.fontWeight.semibold },
+  guardianSub: { color: theme.colors.textMuted, fontSize: theme.fontSize.xs },
+  chevron: { color: theme.colors.textMuted, fontSize: 28 },
 });
