@@ -163,6 +163,7 @@ jest.mock('react-native', () => {
     }),
     ScrollView: mk('div'),
     SafeAreaView: mk('div'),
+    KeyboardAvoidingView: mk('div'),
     ActivityIndicator: mk('div'),
     RefreshControl: mk('div'),
     Switch: React.forwardRef((props: any, ref: any) => {
@@ -181,6 +182,7 @@ jest.mock('react-native', () => {
       sequence: jest.fn(),
     },
     Alert: { alert: (...args: any[]) => mockAlert(...args) },
+    Linking: { openURL: jest.fn() },
     Dimensions: { get: jest.fn(() => ({ width: 375, height: 812 })) },
     Platform: { OS: 'android', select: jest.fn((m: any) => m.android ?? m.default) },
   };

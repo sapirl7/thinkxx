@@ -1,19 +1,12 @@
-import React, { useState, useCallback } from 'react';
+import React, { useCallback, useState } from 'react';
 import { PublicKey, Transaction } from '@solana/web3.js';
 import { PlanMode, ThinkxxClient } from '@thinkxx/sdk';
-import {
-  View,
-  Text,
-  TouchableOpacity,
-  StyleSheet,
-  SafeAreaView,
-  ScrollView,
-  TextInput,
-  Alert,
-} from 'react-native';
-import { StatusBar } from 'expo-status-bar';
+import { View, Text, TouchableOpacity, StyleSheet, TextInput, Alert, Linking } from 'react-native';
 import { useWallet } from '../providers/WalletProvider';
 import { theme } from '../theme';
+import { Screen, ScreenHeader, Card, Button, SectionTitle, InfoRow } from '../components';
+import { formatDuration } from '../lib/format';
+import { isValidPublicKey, explorerTxUrl } from '../lib/solana';
 
 type PlanModeOption = 'medical' | 'legal_risk' | 'legacy';
 
@@ -27,36 +20,10 @@ interface PlanModeInfo {
 }
 
 const PLAN_MODES: PlanModeInfo[] = [
-  {
-    key: 'medical',
-    label: 'Medical',
-    icon: '🏥',
-    description: 'Pre-surgery or high-risk medical procedure',
-    defaultInactivity: '30',
-    defaultGrace: '7',
-  },
-  {
-    key: 'legal_risk',
-    label: 'Legal Risk',
-    icon: '⚖️',
-    description: 'Travel to high-risk jurisdiction',
-    defaultInactivity: '90',
-    defaultGrace: '14',
-  },
-  {
-    key: 'legacy',
-    label: 'Legacy',
-    icon: '🏛',
-    description: 'Long-term inheritance planning',
-    defaultInactivity: '365',
-    defaultGrace: '30',
-  },
+  { key: 'medical', label: 'Medical', icon: '🏥', description: 'Pre-surgery or high-risk medical procedure', defaultInactivity: '30', defaultGrace: '7' },
+  { key: 'legal_risk', label: 'Legal Risk', icon: '⚖️', description: 'Travel to a high-risk jurisdiction', defaultInactivity: '90', defaultGrace: '14' },
+  { key: 'legacy', label: 'Legacy', icon: '🏛', description: 'Long-term inheritance planning', defaultInactivity: '365', defaultGrace: '30' },
 ];
-
-interface CreatePlanScreenProps {
-  onBack: () => void;
-  onCreated: (planAddress: string) => void;
-}
 
 const MODE_TO_PLAN_MODE: Record<PlanModeOption, PlanMode> = {
   medical: PlanMode.Medical,
@@ -67,20 +34,22 @@ const MODE_TO_PLAN_MODE: Record<PlanModeOption, PlanMode> = {
 const SECONDS_PER_DAY = 86_400;
 const MIN_INACTIVITY_DAYS = 1;
 const MAX_INACTIVITY_DAYS = 1_825;
-const MIN_GRACE_HOURS = 1;
-const MIN_GRACE_DAYS = MIN_GRACE_HOURS / 24;
+const MIN_GRACE_DAYS = 1 / 24;
 const MAX_GRACE_DAYS = 90;
+const MAX_QUORUM = 5;
 
-/**
- * CreatePlanScreen — wizard for creating a new emergency access plan.
- * Collects mode, beneficiary, and timing parameters.
- */
+interface CreatePlanScreenProps {
+  onBack: () => void;
+  onCreated: (planAddress: string) => void;
+}
+
 export default function CreatePlanScreen({ onBack, onCreated }: CreatePlanScreenProps): React.JSX.Element {
   const { connection, publicKey, signAndSendTransaction } = useWallet();
   const [selectedMode, setSelectedMode] = useState<PlanModeOption | null>(null);
   const [beneficiary, setBeneficiary] = useState('');
   const [inactivityDays, setInactivityDays] = useState('');
   const [graceDays, setGraceDays] = useState('');
+  const [quorum, setQuorum] = useState(0);
   const [creating, setCreating] = useState(false);
 
   const selectedModeInfo = PLAN_MODES.find(m => m.key === selectedMode);
@@ -94,38 +63,39 @@ export default function CreatePlanScreen({ onBack, onCreated }: CreatePlanScreen
     }
   }, []);
 
+  const inactivityValue = Number.parseFloat(inactivityDays);
+  const graceValue = Number.parseFloat(graceDays);
+  const inactivitySeconds = Number.isFinite(inactivityValue) ? Math.round(inactivityValue * SECONDS_PER_DAY) : 0;
+  const graceSeconds = Number.isFinite(graceValue) ? Math.round(graceValue * SECONDS_PER_DAY) : 0;
+
   const handleCreate = useCallback(async () => {
     if (!selectedMode) {
-      Alert.alert('Select Mode', 'Please select a plan mode');
+      Alert.alert('Select a mode', 'Please choose a plan mode.');
       return;
     }
     if (!publicKey) {
-      Alert.alert('Wallet Required', 'Connect your wallet first');
+      Alert.alert('Wallet required', 'Connect your wallet first.');
       return;
     }
-
-    let beneficiaryPublicKey: PublicKey;
-    try {
-      beneficiaryPublicKey = new PublicKey(beneficiary.trim());
-    } catch {
-      Alert.alert('Invalid Beneficiary', 'Please enter a valid Solana address');
+    if (!isValidPublicKey(beneficiary)) {
+      Alert.alert('Invalid beneficiary', 'Enter a valid Solana address.');
       return;
     }
-
-    const inactivityValue = Number.parseFloat(inactivityDays);
-    const graceValue = Number.parseFloat(graceDays);
-
+    const beneficiaryPublicKey = new PublicKey(beneficiary.trim());
+    if (beneficiaryPublicKey.equals(publicKey)) {
+      Alert.alert('Invalid beneficiary', 'The beneficiary cannot be your own wallet.');
+      return;
+    }
     if (!Number.isFinite(inactivityValue) || inactivityValue < MIN_INACTIVITY_DAYS || inactivityValue > MAX_INACTIVITY_DAYS) {
-      Alert.alert('Invalid Timing', `Inactivity period must be between ${MIN_INACTIVITY_DAYS} and ${MAX_INACTIVITY_DAYS} days`);
+      Alert.alert('Invalid timing', `Inactivity must be between ${MIN_INACTIVITY_DAYS} and ${MAX_INACTIVITY_DAYS} days.`);
       return;
     }
     if (!Number.isFinite(graceValue) || graceValue < MIN_GRACE_DAYS || graceValue > MAX_GRACE_DAYS) {
-      Alert.alert('Invalid Timing', `Grace period must be between ${MIN_GRACE_HOURS} hour and ${MAX_GRACE_DAYS} days`);
+      Alert.alert('Invalid timing', `Grace must be between 1 hour and ${MAX_GRACE_DAYS} days.`);
       return;
     }
 
     setCreating(true);
-
     try {
       const client = new ThinkxxClient(connection);
       const planId = BigInt(Date.now());
@@ -133,211 +103,155 @@ export default function CreatePlanScreen({ onBack, onCreated }: CreatePlanScreen
         planId,
         mode: MODE_TO_PLAN_MODE[selectedMode],
         beneficiary: beneficiaryPublicKey,
-        inactivityDuration: BigInt(Math.round(inactivityValue * SECONDS_PER_DAY)),
-        gracePeriod: BigInt(Math.round(graceValue * SECONDS_PER_DAY)),
-        guardianQuorum: 0,
+        inactivityDuration: BigInt(inactivitySeconds),
+        gracePeriod: BigInt(graceSeconds),
+        guardianQuorum: quorum,
       });
-
       const signature = await signAndSendTransaction(new Transaction().add(instruction));
-
-      Alert.alert(
-        'Plan Created',
-        `Plan address:\n${planPda.toBase58()}\n\nSignature:\n${signature}`,
-        [{ text: 'Continue', onPress: () => onCreated(planPda.toBase58()) }],
-        { cancelable: false }
-      );
+      Alert.alert('Plan created', 'Your plan is on-chain. Add guardians and activate it next.', [
+        { text: 'View on Explorer', onPress: () => void Linking.openURL(explorerTxUrl(signature)) },
+        { text: 'Continue', onPress: () => onCreated(planPda.toBase58()) },
+      ]);
     } catch (err) {
-      Alert.alert('Create Plan Failed', err instanceof Error ? err.message : 'Failed to create plan');
+      Alert.alert('Create plan failed', err instanceof Error ? err.message : 'Please try again.');
     } finally {
       setCreating(false);
     }
-  }, [beneficiary, connection, graceDays, inactivityDays, onCreated, publicKey, selectedMode, signAndSendTransaction]);
+  }, [beneficiary, connection, graceValue, graceSeconds, inactivityValue, inactivitySeconds, onCreated, publicKey, quorum, selectedMode, signAndSendTransaction]);
 
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar style="light" />
-
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={onBack} style={styles.backButton}>
-          <Text style={styles.backText}>← Back</Text>
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Create Plan</Text>
-        <View style={{ width: 60 }} />
-      </View>
-
-      <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
-        {/* Mode Selection */}
-        <Text style={styles.sectionLabel}>Plan Mode</Text>
+    <Screen padded={false} keyboardAvoiding>
+      <ScreenHeader title="Create plan" onBack={onBack} />
+      <Screen scroll padded>
+        <SectionTitle>Plan mode</SectionTitle>
         <View style={styles.modeGrid}>
-          {PLAN_MODES.map(mode => (
-            <TouchableOpacity
-              key={mode.key}
-              style={[
-                styles.modeCard,
-                selectedMode === mode.key && styles.modeCardSelected,
-              ]}
-              onPress={() => handleModeSelect(mode.key)}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.modeIcon}>{mode.icon}</Text>
-              <Text style={[
-                styles.modeLabel,
-                selectedMode === mode.key && styles.modeLabelSelected,
-              ]}>
-                {mode.label}
-              </Text>
-              <Text style={styles.modeDescription}>{mode.description}</Text>
-            </TouchableOpacity>
-          ))}
+          {PLAN_MODES.map(mode => {
+            const active = selectedMode === mode.key;
+            return (
+              <TouchableOpacity
+                key={mode.key}
+                style={[styles.modeCard, active && styles.modeCardActive]}
+                onPress={() => handleModeSelect(mode.key)}
+                activeOpacity={0.8}
+                accessibilityRole="button"
+                accessibilityState={{ selected: active }}
+                accessibilityLabel={`${mode.label} mode`}
+              >
+                <Text style={styles.modeIcon} importantForAccessibility="no">{mode.icon}</Text>
+                <View style={styles.modeText}>
+                  <Text style={[styles.modeLabel, active && styles.modeLabelActive]}>{mode.label}</Text>
+                  <Text style={styles.modeDesc}>{mode.description}</Text>
+                </View>
+              </TouchableOpacity>
+            );
+          })}
         </View>
 
-        {/* Beneficiary */}
-        <Text style={styles.sectionLabel}>Beneficiary Address</Text>
+        <SectionTitle>Beneficiary</SectionTitle>
         <TextInput
           style={styles.input}
-          placeholder="Solana public key (base58)"
+          placeholder="Beneficiary Solana address (base58)"
           placeholderTextColor={theme.colors.textMuted}
           value={beneficiary}
           onChangeText={setBeneficiary}
           autoCapitalize="none"
           autoCorrect={false}
+          accessibilityLabel="Beneficiary address"
         />
 
-        {/* Timing */}
-        <Text style={styles.sectionLabel}>Timing Parameters</Text>
+        <SectionTitle>Timing</SectionTitle>
         <View style={styles.timingRow}>
           <View style={styles.timingField}>
-            <Text style={styles.timingLabel}>Inactivity (days)</Text>
+            <Text style={styles.fieldLabel}>Inactivity (days)</Text>
             <TextInput
               style={styles.timingInput}
               value={inactivityDays}
               onChangeText={setInactivityDays}
               keyboardType="number-pad"
+              placeholder="30"
               placeholderTextColor={theme.colors.textMuted}
+              accessibilityLabel="Inactivity in days"
             />
           </View>
           <View style={styles.timingField}>
-            <Text style={styles.timingLabel}>Grace (days)</Text>
+            <Text style={styles.fieldLabel}>Grace (days)</Text>
             <TextInput
               style={styles.timingInput}
               value={graceDays}
               onChangeText={setGraceDays}
               keyboardType="decimal-pad"
+              placeholder="7"
               placeholderTextColor={theme.colors.textMuted}
+              accessibilityLabel="Grace period in days"
             />
           </View>
         </View>
 
-        {/* Summary */}
-        {selectedMode && (
-          <View style={styles.summaryCard}>
-            <Text style={styles.summaryTitle}>Plan Summary</Text>
-            <SummaryRow label="Mode" value={selectedModeInfo?.label ?? ''} />
-            <SummaryRow label="Inactivity" value={`${inactivityDays} days`} />
-            <SummaryRow label="Grace Period" value={`${graceDays} days`} />
-            <SummaryRow label="Guardians" value="0 (add later)" />
+        <SectionTitle>Guardian quorum</SectionTitle>
+        <Card>
+          <View style={styles.stepperRow}>
+            <TouchableOpacity
+              style={styles.stepperBtn}
+              onPress={() => setQuorum(q => Math.max(0, q - 1))}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              accessibilityRole="button"
+              accessibilityLabel="Decrease quorum"
+            >
+              <Text style={styles.stepperGlyph}>−</Text>
+            </TouchableOpacity>
+            <Text style={styles.stepperValue}>{quorum}</Text>
+            <TouchableOpacity
+              style={styles.stepperBtn}
+              onPress={() => setQuorum(q => Math.min(MAX_QUORUM, q + 1))}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              accessibilityRole="button"
+              accessibilityLabel="Increase quorum"
+            >
+              <Text style={styles.stepperGlyph}>+</Text>
+            </TouchableOpacity>
           </View>
-        )}
+          <Text style={styles.note}>
+            {quorum === 0
+              ? 'No guardian oversight — a claim auto-finalizes after the grace period.'
+              : `${quorum} guardian${quorum > 1 ? 's' : ''} must approve a claim. Add them after creating the plan. Quorum is fixed now and can’t change later.`}
+          </Text>
+        </Card>
 
-        {/* Create Button */}
-        <TouchableOpacity
-          style={[styles.createButton, (!selectedMode || creating) && styles.createButtonDisabled]}
-          onPress={handleCreate}
-          disabled={!selectedMode || creating}
-          activeOpacity={0.8}
-        >
-          <Text style={styles.createButtonText}>{creating ? 'Awaiting Wallet...' : 'Create Plan'}</Text>
-        </TouchableOpacity>
+        {selectedMode ? (
+          <Card>
+            <SectionTitle>Summary</SectionTitle>
+            <InfoRow label="Mode" value={selectedModeInfo?.label ?? ''} />
+            <InfoRow label="Inactivity" value={formatDuration(inactivitySeconds)} />
+            <InfoRow label="Grace period" value={formatDuration(graceSeconds)} />
+            <InfoRow label="Quorum" value={quorum === 0 ? 'None' : `${quorum} of ${quorum}`} />
+          </Card>
+        ) : null}
 
-        <Text style={styles.disclaimer}>
-          ⚠️ This creates an on-chain account. A small rent deposit is required.
-        </Text>
-      </ScrollView>
-    </SafeAreaView>
-  );
-}
-
-function SummaryRow({ label, value }: { label: string; value: string }): React.JSX.Element {
-  return (
-    <View style={styles.summaryRow}>
-      <Text style={styles.summaryLabel}>{label}</Text>
-      <Text style={styles.summaryValue}>{value}</Text>
-    </View>
+        <Button label={creating ? 'Awaiting wallet…' : 'Create plan'} loading={creating} disabled={!selectedMode} onPress={handleCreate} />
+        <Text style={styles.disclaimer}>⚠️ Creates an on-chain account; a small rent deposit is required. Devnet only.</Text>
+      </Screen>
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: theme.colors.background,
-  },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: theme.spacing.lg,
-    paddingVertical: theme.spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: theme.colors.border,
-  },
-  backButton: {
-    width: 60,
-  },
-  backText: {
-    fontSize: theme.fontSize.md,
-    color: theme.colors.primary,
-  },
-  headerTitle: {
-    fontSize: theme.fontSize.lg,
-    fontWeight: theme.fontWeight.bold,
-    color: theme.colors.text,
-  },
-  scrollView: {
-    flex: 1,
-  },
-  scrollContent: {
-    padding: theme.spacing.lg,
-    gap: theme.spacing.lg,
-    paddingBottom: theme.spacing.xxl,
-  },
-  sectionLabel: {
-    fontSize: theme.fontSize.md,
-    fontWeight: theme.fontWeight.semibold,
-    color: theme.colors.text,
-    marginBottom: -theme.spacing.sm,
-  },
-  modeGrid: {
-    gap: theme.spacing.md,
-  },
+  modeGrid: { gap: theme.spacing.md },
   modeCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.md,
     backgroundColor: theme.colors.surface,
     borderRadius: theme.borderRadius.md,
     padding: theme.spacing.md,
     borderWidth: 1.5,
     borderColor: theme.colors.border,
   },
-  modeCardSelected: {
-    borderColor: theme.colors.primary,
-    backgroundColor: `${theme.colors.primary}10`,
-  },
-  modeIcon: {
-    fontSize: 28,
-    marginBottom: theme.spacing.xs,
-  },
-  modeLabel: {
-    fontSize: theme.fontSize.md,
-    fontWeight: theme.fontWeight.semibold,
-    color: theme.colors.text,
-    marginBottom: 2,
-  },
-  modeLabelSelected: {
-    color: theme.colors.primaryLight,
-  },
-  modeDescription: {
-    fontSize: theme.fontSize.sm,
-    color: theme.colors.textSecondary,
-  },
+  modeCardActive: { borderColor: theme.colors.primary, backgroundColor: `${theme.colors.primary}10` },
+  modeIcon: { fontSize: 28 },
+  modeText: { flex: 1 },
+  modeLabel: { fontSize: theme.fontSize.md, fontWeight: theme.fontWeight.semibold, color: theme.colors.text },
+  modeLabelActive: { color: theme.colors.primaryLight },
+  modeDesc: { fontSize: theme.fontSize.sm, color: theme.colors.textSecondary },
   input: {
     backgroundColor: theme.colors.surface,
     borderRadius: theme.borderRadius.md,
@@ -349,18 +263,9 @@ const styles = StyleSheet.create({
     fontSize: theme.fontSize.md,
     fontFamily: 'monospace',
   },
-  timingRow: {
-    flexDirection: 'row',
-    gap: theme.spacing.md,
-  },
-  timingField: {
-    flex: 1,
-  },
-  timingLabel: {
-    fontSize: theme.fontSize.sm,
-    color: theme.colors.textSecondary,
-    marginBottom: theme.spacing.xs,
-  },
+  timingRow: { flexDirection: 'row', gap: theme.spacing.md },
+  timingField: { flex: 1 },
+  fieldLabel: { fontSize: theme.fontSize.sm, color: theme.colors.textSecondary, marginBottom: theme.spacing.xs },
   timingInput: {
     backgroundColor: theme.colors.surface,
     borderRadius: theme.borderRadius.md,
@@ -373,51 +278,19 @@ const styles = StyleSheet.create({
     fontWeight: theme.fontWeight.bold,
     textAlign: 'center',
   },
-  summaryCard: {
+  stepperRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: theme.spacing.xl },
+  stepperBtn: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     backgroundColor: theme.colors.surfaceElevated,
-    borderRadius: theme.borderRadius.md,
-    padding: theme.spacing.md,
     borderWidth: 1,
     borderColor: theme.colors.border,
-    gap: theme.spacing.sm,
-  },
-  summaryTitle: {
-    fontSize: theme.fontSize.md,
-    fontWeight: theme.fontWeight.semibold,
-    color: theme.colors.text,
-    marginBottom: theme.spacing.xs,
-  },
-  summaryRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    justifyContent: 'center',
   },
-  summaryLabel: {
-    fontSize: theme.fontSize.sm,
-    color: theme.colors.textSecondary,
-  },
-  summaryValue: {
-    fontSize: theme.fontSize.sm,
-    fontWeight: theme.fontWeight.medium,
-    color: theme.colors.text,
-  },
-  createButton: {
-    backgroundColor: theme.colors.primary,
-    borderRadius: theme.borderRadius.lg,
-    paddingVertical: theme.spacing.md,
-    alignItems: 'center',
-  },
-  createButtonDisabled: {
-    opacity: 0.4,
-  },
-  createButtonText: {
-    fontSize: theme.fontSize.lg,
-    fontWeight: theme.fontWeight.bold,
-    color: theme.colors.text,
-  },
-  disclaimer: {
-    fontSize: theme.fontSize.xs,
-    color: theme.colors.textMuted,
-    textAlign: 'center',
-  },
+  stepperGlyph: { color: theme.colors.primary, fontSize: theme.fontSize.xl, fontWeight: theme.fontWeight.bold },
+  stepperValue: { color: theme.colors.text, fontSize: 32, fontWeight: theme.fontWeight.bold, minWidth: 44, textAlign: 'center' },
+  note: { color: theme.colors.textMuted, fontSize: theme.fontSize.xs, lineHeight: 18 },
+  disclaimer: { fontSize: theme.fontSize.xs, color: theme.colors.textMuted, textAlign: 'center' },
 });
