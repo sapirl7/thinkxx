@@ -1,4 +1,4 @@
-import { Connection, Transaction, TransactionInstruction, Keypair } from '@solana/web3.js';
+import { Connection, Transaction, Keypair } from '@solana/web3.js';
 import type { RpcEndpoint } from './pool';
 import { RpcPoolManager } from './pool';
 
