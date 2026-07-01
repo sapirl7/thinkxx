@@ -24,6 +24,7 @@ import { formatSol, shortenAddress, formatDate } from '../lib/format';
 interface DashboardScreenProps {
   onCreatePlan: () => void;
   onOpenPlan: (address: string) => void;
+  onClaim: () => void;
   onSettings: () => void;
 }
 
@@ -34,6 +35,7 @@ interface DashboardScreenProps {
 export default function DashboardScreen({
   onCreatePlan,
   onOpenPlan,
+  onClaim,
   onSettings,
 }: DashboardScreenProps): React.JSX.Element {
   const { shortAddress, connection, publicKey } = useWallet();
@@ -113,6 +115,16 @@ export default function DashboardScreen({
           <PlanCard key={plan.address.toBase58()} plan={plan} onPress={() => onOpenPlan(plan.address.toBase58())} />
         ))
       )}
+
+      <View style={styles.claimSection}>
+        <SectionTitle>Named in someone&apos;s plan?</SectionTitle>
+        <Button
+          label="Access a plan"
+          variant="secondary"
+          onPress={onClaim}
+          accessibilityHint="Act on a claim for a plan where you are a beneficiary or guardian"
+        />
+      </View>
     </Screen>
   );
 }
@@ -166,4 +178,5 @@ const styles = StyleSheet.create({
   planBalance: { fontSize: theme.fontSize.xl, fontWeight: theme.fontWeight.bold, color: theme.colors.text },
   planMeta: { fontSize: theme.fontSize.sm, color: theme.colors.textSecondary },
   planMetaMuted: { fontSize: theme.fontSize.xs, color: theme.colors.textMuted },
+  claimSection: { gap: theme.spacing.md, marginTop: theme.spacing.sm },
 });

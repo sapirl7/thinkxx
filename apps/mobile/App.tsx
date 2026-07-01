@@ -7,11 +7,12 @@ import CreatePlanScreen from './src/screens/CreatePlanScreen';
 import PlanDetailScreen from './src/screens/PlanDetailScreen';
 import GuardiansScreen from './src/screens/GuardiansScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
+import ClaimScreen from './src/screens/ClaimScreen';
 
 /**
  * Screen-based navigation for the Thinkxx mobile app.
  */
-type Screen = 'dashboard' | 'create_plan' | 'plan_detail' | 'guardians' | 'settings';
+type Screen = 'dashboard' | 'create_plan' | 'plan_detail' | 'guardians' | 'settings' | 'claim';
 
 function AppNavigator(): React.JSX.Element {
   const { connected, disconnect, publicKey } = useWallet();
@@ -51,6 +52,8 @@ function AppNavigator(): React.JSX.Element {
       );
     case 'guardians':
       return <GuardiansScreen planAddress={selectedPlan} onBack={() => setScreen('plan_detail')} />;
+    case 'claim':
+      return <ClaimScreen initialPlanAddress={selectedPlan} onBack={() => setScreen('dashboard')} />;
     case 'settings':
       return (
         <SettingsScreen
@@ -63,6 +66,10 @@ function AppNavigator(): React.JSX.Element {
         <DashboardScreen
           onCreatePlan={() => setScreen('create_plan')}
           onOpenPlan={openPlan}
+          onClaim={() => {
+            setSelectedPlan(null);
+            setScreen('claim');
+          }}
           onSettings={() => setScreen('settings')}
         />
       );

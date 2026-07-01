@@ -30,6 +30,7 @@ import DashboardScreen from './DashboardScreen';
 
 const mockOnCreatePlan = jest.fn();
 const mockOnOpenPlan = jest.fn();
+const mockOnClaim = jest.fn();
 const mockOnSettings = jest.fn();
 
 function renderDashboard() {
@@ -37,6 +38,7 @@ function renderDashboard() {
     <DashboardScreen
       onCreatePlan={mockOnCreatePlan}
       onOpenPlan={mockOnOpenPlan}
+      onClaim={mockOnClaim}
       onSettings={mockOnSettings}
     />,
   );
