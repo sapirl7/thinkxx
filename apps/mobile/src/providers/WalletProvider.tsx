@@ -177,11 +177,10 @@ export function WalletProvider({ children }: { children: ReactNode }): React.JSX
         state.walletUriBase ? { baseUri: state.walletUriBase } : undefined
       );
     } catch (err) {
-      setState(s => ({
-        ...s,
-        connecting: false,
-        error: toWalletErrorMessage(err),
-      }));
+      setState(s => ({ ...s, error: toWalletErrorMessage(err) }));
+    } finally {
+      // Guarantee the connecting spinner clears on every path.
+      setState(s => (s.connecting ? { ...s, connecting: false } : s));
     }
   }, [authorizeWallet, state.walletUriBase]);
 
@@ -275,18 +274,19 @@ export function WalletProvider({ children }: { children: ReactNode }): React.JSX
     }
   }, [authorizeWallet, connection, state.connected, state.walletUriBase]);
 
-  const shortAddress = state.publicKey
-    ? `${state.publicKey.toBase58().slice(0, 4)}...${state.publicKey.toBase58().slice(-4)}`
-    : null;
-
-  const value: WalletContextValue = {
-    ...state,
-    connection,
-    connect,
-    disconnect,
-    signAndSendTransaction,
-    shortAddress,
-  };
+  const value = useMemo<WalletContextValue>(() => {
+    const shortAddress = state.publicKey
+      ? `${state.publicKey.toBase58().slice(0, 4)}...${state.publicKey.toBase58().slice(-4)}`
+      : null;
+    return {
+      ...state,
+      connection,
+      connect,
+      disconnect,
+      signAndSendTransaction,
+      shortAddress,
+    };
+  }, [state, connection, connect, disconnect, signAndSendTransaction]);
 
   return (
     <WalletContext.Provider value={value}>

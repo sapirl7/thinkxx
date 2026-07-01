@@ -7,12 +7,26 @@ function encodeSeed(value: string): Uint8Array {
 }
 
 /**
- * Lifeline program ID.
- * Updated after each deployment.
+ * Default Lifeline program ID (last devnet deployment).
+ * Override at runtime without code changes via env:
+ *   - EXPO_PUBLIC_PROGRAM_ID  (mobile / Expo — inlined at build time)
+ *   - THINKXX_PROGRAM_ID      (CLI / Node)
+ * Set this to the freshly-issued program id after a new deploy.
  */
-export const PROGRAM_ID = new PublicKey(
-  '5FEoFcJ2QK7T8SFDX7jKtCfSKvfGhE8QDRLVH2xSWvaP'
-);
+const DEFAULT_PROGRAM_ID = '5FEoFcJ2QK7T8SFDX7jKtCfSKvfGhE8QDRLVH2xSWvaP';
+
+function resolveProgramId(): PublicKey {
+  const env = ((globalThis as { process?: { env?: Record<string, string | undefined> } })
+    .process?.env) ?? {};
+  const candidate = env.EXPO_PUBLIC_PROGRAM_ID ?? env.THINKXX_PROGRAM_ID ?? DEFAULT_PROGRAM_ID;
+  try {
+    return new PublicKey(candidate);
+  } catch {
+    return new PublicKey(DEFAULT_PROGRAM_ID);
+  }
+}
+
+export const PROGRAM_ID = resolveProgramId();
 
 /** PDA seed prefixes used by the Lifeline program */
 export const SEEDS = {
